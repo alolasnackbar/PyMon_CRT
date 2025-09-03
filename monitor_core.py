@@ -100,6 +100,7 @@ def get_ram_usage():
             return (used / total) * 100
         except:
             return 0.0
+        
     elif system in ["Linux", "Darwin"]:
         out = run_cmd("free -m") if system == "Linux" else run_cmd("vm_stat")
         try:
@@ -135,6 +136,7 @@ def get_disk_usage():
             return (used / total_bytes.value) * 100
         except:
             return 0.0
+        
     else:  # Linux & macOS
         st = os.statvfs("/")
         total = st.f_blocks * st.f_frsize
