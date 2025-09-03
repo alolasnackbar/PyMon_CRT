@@ -2,14 +2,15 @@ import os
 import platform
 import subprocess
 import time
-#import wmi
 
 # Optional: only import wmi if on Windows
-# if platform.system() == "Windows":
-#     try:
-#         import wmi
-#     except ImportError:
-#         wmi = None
+if platform.system() == "Windows":
+    try:
+        #import wmi
+        import ctypes
+    except ImportError:
+        #wmi = None
+        ctypes = None
 
 def run_cmd(cmd):
     """Run a shell command safely, return stripped output or empty string."""
@@ -64,6 +65,28 @@ def get_gpu_usage():
     except:
         return 0.0
 
+def get_temp():
+    system = platform.system()
+    if system == "Linux":
+        try:
+            for zone in os.listdir("/sys/class/thermal"):
+                path = f"/sys/class/thermal/{zone}/temp"
+                if os.path.isfile(path):
+                    with open(path) as f:
+                        val = int(f.read().strip())
+                        return f"{val/1000:.1f}°C"
+        except:
+            pass
+    # elif system == "Windows" and wmi is not None:
+    #     try:
+    #         w = wmi.WMI(namespace="root\\wmi")
+    #         temps = w.MSAcpi_ThermalZoneTemperature()
+    #         if temps:
+    #             return f"{(temps[0].CurrentTemperature / 10) - 273.15:.1f}°C"
+    #     except Exception:
+    #         pass
+    return "N/A"
+
 # ---- RAM Usage (Cross-platform) ----
 def get_ram_usage():
     system = platform.system()
@@ -99,14 +122,17 @@ def get_ram_usage():
 # ---- Disk Usage (Cross-platform) ----
 def get_disk_usage():
     system = platform.system()
-    if system == "Windows":
-        out = run_cmd("wmic logicaldisk where DeviceID='C:' get Size,FreeSpace /Value")
+    if system == "Windows" and ctypes is not None:
         try:
-            lines = out.splitlines()
-            free = int([l for l in lines if l.startswith("FreeSpace")][0].split("=")[1])
-            total = int([l for l in lines if l.startswith("Size")][0].split("=")[1])
-            used = total - free
-            return (used / total) * 100
+            drive = os.getenv("SystemDrive", "C:\\")  # dynamically get system drive
+            free_bytes = ctypes.c_ulonglong(0)
+            total_bytes = ctypes.c_ulonglong(0)
+            ctypes.windll.kernel32.GetDiskFreeSpaceExW(ctypes.c_wchar_p(drive),
+                                                       ctypes.pointer(free_bytes),
+                                                       ctypes.pointer(total_bytes),
+                                                       None)
+            used = total_bytes.value - free_bytes.value
+            return (used / total_bytes.value) * 100
         except:
             return 0.0
     else:  # Linux & macOS
@@ -115,26 +141,4 @@ def get_disk_usage():
         free = st.f_bavail * st.f_frsize
         used = total - free
         return (used / total) * 100
-    
-def get_temp():
-    system = platform.system()
-    if system == "Linux":
-        try:
-            for zone in os.listdir("/sys/class/thermal"):
-                path = f"/sys/class/thermal/{zone}/temp"
-                if os.path.isfile(path):
-                    with open(path) as f:
-                        val = int(f.read().strip())
-                        return f"{val/1000:.1f}°C"
-        except:
-            pass
-    # elif system == "Windows" and _wmi is not None:
-    #     try:
-    #         w = wmi.WMI(namespace="root\\wmi")
-    #         temps = w.MSAcpi_ThermalZoneTemperature()
-    #         if temps:
-    #             # WMI returns tenths of Kelvin → convert to °C
-    #             return f"{(temps[0].CurrentTemperature / 10) - 273.15:.1f}°C"
-    #     except Exception:
-    #         pass
-    return "N/A"
+

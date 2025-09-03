@@ -34,7 +34,7 @@ temp_label.pack(padx=10, pady=5)
 ram_label = ttk.Label(root, text="RAM Usage: ...")
 ram_label.pack(padx=10, pady=5)
 
-disk_label = ttk.Label(root, text="Disk Usage: ...")
+disk_label = ttk.Label(root, text="Disk Space Used: ...")
 disk_label.pack(padx=10, pady=5)
 
 update_stats()
