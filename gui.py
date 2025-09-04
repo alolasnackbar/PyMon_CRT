@@ -2,179 +2,196 @@ import ttkbootstrap as tb
 from ttkbootstrap.constants import *
 import monitor_core as core
 
-# --- History for graphs ---
 MAX_POINTS = 60
-cpu_history, ram_history, gpu_history = [], [], []
-disk_usage_history, disk_read_history, disk_write_history = [], [], []
+REFRESH_MS = 1000
+history = {"CPU": [], "RAM": [], "GPU": [], "DISK_read": [], "DISK_write": []}
+DISK_IO_MAX_MBPS = 500
 
-# ==== GUI Setup ====
+# CRT colors and fonts
+CRT_GREEN = "#00FF66"
+CRT_YELLOW = "#FFFF00"
+CRT_RED = "#FF4444"
+CRT_GRID  = "#024D02"
+FONT_TITLE = ("Courier", 9, "bold")
+GRAPH_HEIGHT = 90
+PROGRESS_THICKNESS = 35
+
+# ==== GUI setup ====
 root = tb.Window(themename="darkly")
-root.title("System Monitor (Task Manager Style)")
-root.geometry("950x600")
-
-# --- Custom progress bar style ---
-style = tb.Style()
-style.configure("Medium.Horizontal.TProgressbar", thickness=20)
-
-# ==== Graph drawing function with fill ====
-def draw_filled_graph(canvas, data, max_value, color, overlay_data=None, overlay_color=None):
-    canvas.delete("all")
-    if len(data) < 2:
-        return
-    w, h = canvas.winfo_width(), canvas.winfo_height()
-    step = w / MAX_POINTS
-
-    # --- Primary filled graph ---
-    points = []
-    for i, val in enumerate(data):
-        x = i * step
-        y = h - (val / max_value) * h
-        points.append((x, y))
-
-    # Build polygon: add bottom right and bottom left to close the shape
-    polygon_points = [(points[0][0], h)] + points + [(points[-1][0], h)]
-    canvas.create_polygon(polygon_points, fill=color, outline=color)
-
-    # --- Overlay if exists ---
-    if overlay_data and overlay_color:
-        overlay_points = []
-        for i, val in enumerate(overlay_data):
-            x = i * step
-            y = h - (val / max_value) * h
-            overlay_points.append((x, y))
-        overlay_polygon = [(overlay_points[0][0], h)] + overlay_points + [(overlay_points[-1][0], h)]
-        canvas.create_polygon(overlay_polygon, fill=overlay_color, outline=overlay_color)
-
-
-
-# ==== Update stats function ====
-def update_stats():
-    # Fetch system stats
-    cpu = core.get_cpu_usage()
-    ram = core.get_ram_usage()
-    gpu = core.get_gpu_usage()
-    disk = core.get_disk_usage()
-    read_mb, write_mb = core.get_disk_io(interval=0.5)
-
-    # --- CPU ---
-    if cpu is not None:
-        cpu_bar["value"] = cpu
-        cpu_label.config(text=f"CPU Usage: {cpu:.1f}%")
-        cpu_history.append(cpu)
-        if len(cpu_history) > MAX_POINTS:
-            cpu_history.pop(0)
-    else:
-        cpu_label.config(text="CPU Usage: N/A")
-
-    # --- RAM ---
-    if ram is not None:
-        ram_bar["value"] = ram
-        ram_label.config(text=f"RAM Usage: {ram:.1f}%")
-        ram_history.append(ram)
-        if len(ram_history) > MAX_POINTS:
-            ram_history.pop(0)
-    else:
-        ram_label.config(text="RAM Usage: N/A")
-
-    # --- GPU ---
-    if gpu is not None:
-        gpu_bar["value"] = gpu
-        gpu_label.config(text=f"GPU Usage: {gpu:.1f}%")
-        gpu_history.append(gpu)
-        if len(gpu_history) > MAX_POINTS:
-            gpu_history.pop(0)
-    else:
-        gpu_bar["value"] = 0
-        gpu_label.config(text="GPU Usage: N/A")
-
-    # --- Disk ---
-    if disk is not None:
-        disk_bar["value"] = disk
-        disk_label.config(text=f"Disk Usage: {disk:.1f}%")
-        disk_usage_history.append(disk)
-        if len(disk_usage_history) > MAX_POINTS:
-            disk_usage_history.pop(0)
-    else:
-        disk_label.config(text="Disk Usage: N/A")
-
-    # --- Disk I/O ---
-    if read_mb is not None and write_mb is not None:
-        io_label.config(text=f"Disk I/O: {read_mb:.2f} MB/s read, {write_mb:.2f} MB/s write")
-        disk_read_history.append(read_mb)
-        disk_write_history.append(write_mb)
-        if len(disk_read_history) > MAX_POINTS:
-            disk_read_history.pop(0)
-            disk_write_history.pop(0)
-    else:
-        io_label.config(text="Disk I/O: N/A")
-
-    # --- Draw filled graphs ---
-    draw_filled_graph(cpu_canvas, cpu_history, 100, "green")
-    draw_filled_graph(ram_canvas, ram_history, 100, "cyan")
-    draw_filled_graph(gpu_canvas, gpu_history, 100, "red")
-    max_io = max(disk_read_history + disk_write_history + [1])
-    draw_filled_graph(disk_canvas, disk_read_history, max_io, "orange",
-                      overlay_data=disk_write_history, overlay_color="magenta")
-
-    root.after(1000, update_stats)
-
-
-# ==== Frames & Widgets ====
-
-# CPU Frame
-cpu_frame = tb.Labelframe(root, text="CPU", bootstyle="success")
-cpu_frame.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
-cpu_label = tb.Label(cpu_frame, text="CPU Usage: ...", anchor="w", font=("Segoe UI", 10, "bold"))
-cpu_label.pack(fill=X, padx=5, pady=2)
-cpu_bar = tb.Progressbar(cpu_frame, bootstyle="success-striped", maximum=100,
-                         style="Medium.Horizontal.TProgressbar")
-cpu_bar.pack(fill=X, padx=5, pady=5)
-cpu_canvas = tb.Canvas(cpu_frame, height=80)
-cpu_canvas.pack(fill=BOTH, expand=True, padx=5, pady=5)
-
-# RAM Frame
-ram_frame = tb.Labelframe(root, text="RAM", bootstyle="info")
-ram_frame.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
-ram_label = tb.Label(ram_frame, text="RAM Usage: ...", anchor="w", font=("Segoe UI", 10, "bold"))
-ram_label.pack(fill=X, padx=5, pady=2)
-ram_bar = tb.Progressbar(ram_frame, bootstyle="info-striped", maximum=100,
-                         style="Medium.Horizontal.TProgressbar")
-ram_bar.pack(fill=X, padx=5, pady=5)
-ram_canvas = tb.Canvas(ram_frame, height=80)
-ram_canvas.pack(fill=BOTH, expand=True, padx=5, pady=5)
-
-# Disk Frame
-disk_frame = tb.Labelframe(root, text="DISK", bootstyle="warning")
-disk_frame.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
-disk_label = tb.Label(disk_frame, text="Disk Usage: ...", anchor="w", font=("Segoe UI", 10, "bold"))
-disk_label.pack(fill=X, padx=5, pady=2)
-disk_bar = tb.Progressbar(disk_frame, bootstyle="warning-striped", maximum=100,
-                          style="Medium.Horizontal.TProgressbar")
-disk_bar.pack(fill=X, padx=5, pady=5)
-io_label = tb.Label(disk_frame, text="Disk I/O: ...", anchor="w", font=("Segoe UI", 9))
-io_label.pack(fill=X, padx=5, pady=2)
-disk_canvas = tb.Canvas(disk_frame, height=80)
-disk_canvas.pack(fill=BOTH, expand=True, padx=5, pady=5)
-
-# GPU Frame
-gpu_frame = tb.Labelframe(root, text="GPU", bootstyle="danger")
-gpu_frame.grid(row=1, column=1, padx=10, pady=10, sticky="nsew")
-gpu_label = tb.Label(gpu_frame, text="GPU Usage: ...", anchor="w", font=("Segoe UI", 10, "bold"))
-gpu_label.pack(fill=X, padx=5, pady=2)
-gpu_bar = tb.Progressbar(gpu_frame, bootstyle="danger-striped", maximum=100,
-                         style="Medium.Horizontal.TProgressbar")
-gpu_bar.pack(fill=X, padx=5, pady=5)
-gpu_canvas = tb.Canvas(gpu_frame, height=80)
-gpu_canvas.pack(fill=BOTH, expand=True, padx=5, pady=5)
-
-# Grid expansion
+root.title("AlohaSnackBar Hardware Monitor")
+root.geometry("960x600")
 root.columnconfigure((0,1), weight=1)
 root.rowconfigure((0,1), weight=1)
-cpu_frame.columnconfigure(0, weight=1); cpu_frame.rowconfigure(2, weight=1)
-ram_frame.columnconfigure(0, weight=1); ram_frame.rowconfigure(2, weight=1)
-disk_frame.columnconfigure(0, weight=1); disk_frame.rowconfigure(3, weight=1)
-gpu_frame.columnconfigure(0, weight=1); gpu_frame.rowconfigure(2, weight=1)
 
-# Start monitoring
+style = tb.Style()
+
+# ---- Helper functions ----
+def get_usage_color(value):
+    if value < 60: return CRT_GREEN
+    elif value < 80: return CRT_YELLOW
+    else: return CRT_RED
+
+def draw_crt_grid(canvas):
+    w, h = canvas.winfo_width(), canvas.winfo_height()
+    if w < 10 or h < 10: return
+    for x in range(0, w, max(1, w // 10)):
+        canvas.create_line(x, 0, x, h, fill=CRT_GRID)
+    for y in range(0, h, max(1, h // 5)):
+        canvas.create_line(0, y, w, y, fill=CRT_GRID)
+
+def draw_crt_line(canvas, data, max_value, line_color, width=2):
+    w, h = canvas.winfo_width(), canvas.winfo_height()
+    if len(data) < 2 or w < 10 or h < 10: return
+    step = w / MAX_POINTS
+    pts = [(i * step, h - (val / max(1e-6, max_value)) * h) for i, val in enumerate(data)]
+    for i in range(len(pts)-1):
+        canvas.create_line(pts[i], pts[i+1], fill=line_color, width=width)
+
+def draw_dual_io(canvas, read_hist, write_hist):
+    canvas.delete("all")
+    draw_crt_grid(canvas)
+    max_io = max(read_hist + write_hist + [1])
+    draw_crt_line(canvas, read_hist, max_io, CRT_GREEN)
+    draw_crt_line(canvas, write_hist, max_io, "white")
+
+def draw_metric(canvas, series, max_value, color=CRT_GREEN):
+    canvas.delete("all")
+    draw_crt_grid(canvas)
+    draw_crt_line(canvas, series, max_value, color)
+
+# ---- Build metric frame ----
+def build_metric_frame(parent, title, maxval=100, graph_height=GRAPH_HEIGHT):
+    f = tb.Labelframe(parent, text=title, bootstyle="dark")
+    lbl = tb.Label(f, text=f"{title}: ...", anchor="w", font=FONT_TITLE, foreground=CRT_GREEN)
+    lbl.pack(fill=X, padx=4, pady=(4,2))
+
+    style_name = f"{title}.Horizontal.TProgressbar"
+    style.configure(style_name, troughcolor="black", background=CRT_GREEN, thickness=PROGRESS_THICKNESS)
+    bar = tb.Progressbar(f, bootstyle="success", maximum=maxval, style=style_name)
+    bar._style_name = style_name
+    bar.pack(fill=X, padx=4, pady=(0,4))
+
+    cvs = tb.Canvas(f, height=graph_height, background="black", highlightthickness=0)
+    cvs.pack(fill=BOTH, expand=True, padx=4, pady=4)
+    return f, lbl, bar, cvs
+
+# ==== Layout ====
+metric_list = [
+    {"name": "CPU", "maxval": 100, "row": 0, "col": 0},
+    {"name": "RAM", "maxval": 100, "row": 0, "col": 1},
+    {"name": "GPU", "maxval": 100, "row": 1, "col": 0},
+    {"name": "Disk I/O", "maxval": DISK_IO_MAX_MBPS, "row": 1, "col": 1, "io": True},
+    {"name": "Sys Info & Time", "row": 2, "col": 0, "colspan": 2, "sysinfo": True}
+]
+
+widgets = {}
+
+for metric in metric_list:
+    name = metric["name"]
+    row, col = metric["row"], metric["col"]
+    colspan = metric.get("colspan", 1)
+
+    if metric.get("io", False):
+        f = tb.Labelframe(root, text=name, bootstyle="dark")
+        f.grid(row=row, column=col, columnspan=colspan, sticky="nsew", padx=4, pady=4)
+
+        io_read_lbl = tb.Label(f, text="READ: ...", anchor="w", font=("Courier", 8, "bold"), foreground="white")
+        io_read_lbl.pack(fill=X, padx=4, pady=(2,0))
+        io_read_bar_style = f"IORead.Horizontal.TProgressbar"
+        style.configure(io_read_bar_style, troughcolor="black", background=CRT_GREEN, thickness=PROGRESS_THICKNESS)
+        io_read_bar = tb.Progressbar(f, bootstyle="success", maximum=DISK_IO_MAX_MBPS, style=io_read_bar_style)
+        io_read_bar._style_name = io_read_bar_style
+        io_read_bar.pack(fill=X, padx=4, pady=(0,2))
+
+        io_write_lbl = tb.Label(f, text="WRITE: ...", anchor="w", font=("Courier", 8, "bold"), foreground="white")
+        io_write_lbl.pack(fill=X, padx=4, pady=(2,0))
+        io_write_bar_style = f"IOWrite.Horizontal.TProgressbar"
+        style.configure(io_write_bar_style, troughcolor="black", background="white", thickness=PROGRESS_THICKNESS)
+        io_write_bar = tb.Progressbar(f, bootstyle="success", maximum=DISK_IO_MAX_MBPS, style=io_write_bar_style)
+        io_write_bar._style_name = io_write_bar_style
+        io_write_bar.pack(fill=X, padx=4, pady=(0,2))
+
+        io_canvas = tb.Canvas(f, height=GRAPH_HEIGHT, background="black", highlightthickness=0)
+        io_canvas.pack(fill=BOTH, expand=True, padx=4, pady=4)
+        widgets[name] = (io_read_lbl, io_write_lbl, io_read_bar, io_write_bar, io_canvas)
+
+    elif metric.get("sysinfo", False):
+        f = tb.Labelframe(root, text="System Info & Time", bootstyle="dark")
+        f.grid(row=row, column=col, columnspan=colspan, sticky="nsew", padx=4, pady=4)
+
+        # Time / Uptime large
+        time_lbl = tb.Label(f, text="Time: ...", anchor="w", font=("Courier", 15, "bold"), foreground=CRT_GREEN)
+        time_lbl.pack(fill=X, pady=(10,2))
+        uptime_lbl = tb.Label(f, text="Uptime: ...", anchor="w", font=("Courier", 15, "bold"), foreground=CRT_GREEN)
+        uptime_lbl.pack(fill=X, pady=(2,10))
+
+        # System info smaller
+        info_labels = {}
+        for key in ["CPU Model", "Cores", "Threads", "GPU"]:
+            lbl = tb.Label(f, text=f"{key}: ...", anchor="w", font=("Courier", 10, "bold"), foreground=CRT_GREEN)
+            lbl.pack(fill=X, padx=4, pady=1)
+            info_labels[key] = lbl
+        widgets[name] = (time_lbl, uptime_lbl, info_labels)
+
+    else:
+        f, lbl, bar, cvs = build_metric_frame(root, name)
+        f.grid(row=row, column=col, sticky="nsew", padx=4, pady=4)
+        widgets[name] = (lbl, bar, cvs, metric["maxval"])
+
+# ==== Update function ====
+def update_stats():
+    # CPU / RAM / GPU
+    cpu = core.get_cpu_usage()
+    ram_percent = core.get_ram_usage()
+    gpu = core.get_gpu_usage()
+    usage_values = {"CPU": cpu, "RAM": ram_percent, "GPU": gpu}
+    max_metric = max([v for v in usage_values.values() if v is not None] + [0])
+
+    for key, val in usage_values.items():
+        if val is None: continue
+        history[key].append(val)
+        if len(history[key]) > MAX_POINTS: history[key].pop(0)
+        lbl, bar, cvs, maxv = widgets[key]
+
+        lbl_color = get_usage_color(val) if val == max_metric else CRT_GREEN
+        lbl.config(foreground=lbl_color, text=f"{key}: {val:.1f}%")
+        style.configure(bar._style_name, background=lbl_color)
+        bar["value"] = val
+        draw_metric(cvs, history[key], maxv, color=lbl_color)
+
+        # RAM inline used/free
+        if key == "RAM":
+            ram_info = core.get_ram_info()
+            lbl.config(text=f"RAM: {ram_info['used']}GB / {ram_info['available']}GB ({val:.1f}%)")
+
+    # Disk I/O
+    read_mb, write_mb = core.get_disk_io(interval=0.5)
+    if read_mb is not None:
+        io_read_lbl, io_write_lbl, io_read_bar, io_write_bar, io_canvas = widgets["Disk I/O"]
+        io_read_lbl.config(text=f"READ: {read_mb:.2f} MB/s")
+        io_write_lbl.config(text=f"WRITE: {write_mb:.2f} MB/s")
+        io_read_bar["value"] = min(read_mb, DISK_IO_MAX_MBPS)
+        io_write_bar["value"] = min(write_mb, DISK_IO_MAX_MBPS)
+        history["DISK_read"].append(read_mb)
+        history["DISK_write"].append(write_mb)
+        if len(history["DISK_read"]) > MAX_POINTS:
+            history["DISK_read"].pop(0)
+            history["DISK_write"].pop(0)
+        draw_dual_io(io_canvas, history["DISK_read"], history["DISK_write"])
+
+    # System Info & Time
+    time_lbl, uptime_lbl, info_labels = widgets["Sys Info & Time"]
+    time_lbl.config(text=f"Time: {core.get_local_time()}")
+    uptime_lbl.config(text=f"Uptime: {core.get_uptime()}")
+
+    cpu_info = core.get_cpu_info()
+    gpu_info = core.get_gpu_info()
+    info_labels["CPU Model"].config(text=f"CPU Model: {cpu_info['model']}")
+    info_labels["Cores"].config(text=f"Cores: {cpu_info['physical_cores']}")
+    info_labels["Threads"].config(text=f"Threads: {cpu_info['logical_cores']}")
+    info_labels["GPU"].config(text=f"GPU: {gpu_info}")
+
+    root.after(REFRESH_MS, update_stats)
+
 update_stats()
 root.mainloop()
