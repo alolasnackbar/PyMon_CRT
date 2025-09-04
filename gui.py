@@ -154,7 +154,7 @@ def update_stats():
         lbl, bar, cvs, maxv = widgets[key]
 
         lbl_color = get_usage_color(val) if val == max_metric else CRT_GREEN
-        lbl.config(foreground=lbl_color, text=f"{key}: {val:.1f}%")
+        lbl.config(foreground=lbl_color, text=f"{key} Usage: {val:.1f}%")
         style.configure(bar._style_name, background=lbl_color)
         bar["value"] = val
         draw_metric(cvs, history[key], maxv, color=lbl_color)
@@ -162,7 +162,7 @@ def update_stats():
         # RAM inline used/free
         if key == "RAM":
             ram_info = core.get_ram_info()
-            lbl.config(text=f"RAM: {ram_info['used']}GB / {ram_info['available']}GB ({val:.1f}%)")
+            lbl.config(text=f"RAM Utilized: {ram_info['used']} GB Used | {ram_info['available']} GB Left | ({val:.1f}%)")
 
     # Disk I/O
     read_mb, write_mb = core.get_disk_io(interval=0.5)
