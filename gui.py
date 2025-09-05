@@ -61,7 +61,7 @@ def draw_metric(canvas, series, max_value, color=CRT_GREEN):
 
 # ---- Build metric frame ----
 def build_metric_frame(parent, title, maxval=100, graph_height=GRAPH_HEIGHT):
-    f = tb.Labelframe(parent, text=title, bootstyle="dark")
+    f = tb.Labelframe(parent, text=title, bootstyle="white")
     lbl = tb.Label(f, text=f"{title}: ...", anchor="w", font=FONT_TITLE, foreground=CRT_GREEN)
     lbl.pack(fill=X, padx=4, pady=(4,2))
 
@@ -92,10 +92,10 @@ for metric in metric_list:
     colspan = metric.get("colspan", 1)
 
     if metric.get("io", False):
-        f = tb.Labelframe(root, text=name, bootstyle="dark")
+        f = tb.Labelframe(root, text=name, bootstyle="white")
         f.grid(row=row, column=col, columnspan=colspan, sticky="nsew", padx=4, pady=4)
 
-        io_read_lbl = tb.Label(f, text="READ: ...", anchor="w", font=("Courier", 8, "bold"), foreground="white")
+        io_read_lbl = tb.Label(f, text="READ: ...", anchor="w", font=("Courier", 8, "bold"), foreground=CRT_GREEN)
         io_read_lbl.pack(fill=X, padx=4, pady=(2,0))
         io_read_bar_style = f"IORead.Horizontal.TProgressbar"
         style.configure(io_read_bar_style, troughcolor="black", background=CRT_GREEN, thickness=PROGRESS_THICKNESS)
@@ -116,7 +116,7 @@ for metric in metric_list:
         widgets[name] = (io_read_lbl, io_write_lbl, io_read_bar, io_write_bar, io_canvas)
 
     elif metric.get("sysinfo", False):
-        f = tb.Labelframe(root, text="System Info & Time", bootstyle="dark")
+        f = tb.Labelframe(root, text="System Info & Time", bootstyle="white")
         f.grid(row=row, column=col, columnspan=colspan, sticky="nsew", padx=4, pady=4)
 
         # Time / Uptime large
