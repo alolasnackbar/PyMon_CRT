@@ -2,26 +2,24 @@ import ttkbootstrap as tb
 from ttkbootstrap.constants import *
 import monitor_core as core
 
-MAX_POINTS = 60
-REFRESH_MS = 1000
+from constants import *
+from crt_graphics import draw_crt_grid, draw_crt_line, draw_dual_io, draw_metric
+from widgets import build_metric_frame, center_overlay_label
+
+# ==== Global settings ====
 history = {"CPU": [], "RAM": [], "GPU": [], "DISK_read": [], "DISK_write": []}
-DISK_IO_MAX_MBPS = 500
+frame_count = 0
 
-# CRT colors and fonts
-CRT_GREEN = "#00FF66"
-CRT_YELLOW = "#FFFF00"
-CRT_RED = "#FF4444"
-CRT_GRID  = "#024D02"
-FONT_TITLE = ("Courier", 9, "bold")
-GRAPH_HEIGHT = 90
-PROGRESS_THICKNESS = 35
-
-# ==== GUI setup ====
+# ==== Main GUI setup ====
 root = tb.Window(themename="darkly")
 root.title("AlohaSnackBar Hardware Monitor")
-root.geometry("960x600")
-root.columnconfigure((0,1), weight=1)
-root.rowconfigure((0,1), weight=1)
+root.geometry("960x700")
+
+# Configure root grid weights for responsiveness
+for i in range(3):
+    root.rowconfigure(i, weight=1)
+for i in range(2):
+    root.columnconfigure(i, weight=1)
 
 style = tb.Style()
 
@@ -30,50 +28,6 @@ def get_usage_color(value):
     if value < 60: return CRT_GREEN
     elif value < 80: return CRT_YELLOW
     else: return CRT_RED
-
-def draw_crt_grid(canvas):
-    w, h = canvas.winfo_width(), canvas.winfo_height()
-    if w < 10 or h < 10: return
-    for x in range(0, w, max(1, w // 10)):
-        canvas.create_line(x, 0, x, h, fill=CRT_GRID)
-    for y in range(0, h, max(1, h // 5)):
-        canvas.create_line(0, y, w, y, fill=CRT_GRID)
-
-def draw_crt_line(canvas, data, max_value, line_color, width=2):
-    w, h = canvas.winfo_width(), canvas.winfo_height()
-    if len(data) < 2 or w < 10 or h < 10: return
-    step = w / MAX_POINTS
-    pts = [(i * step, h - (val / max(1e-6, max_value)) * h) for i, val in enumerate(data)]
-    for i in range(len(pts)-1):
-        canvas.create_line(pts[i], pts[i+1], fill=line_color, width=width)
-
-def draw_dual_io(canvas, read_hist, write_hist):
-    canvas.delete("all")
-    draw_crt_grid(canvas)
-    max_io = max(read_hist + write_hist + [1])
-    draw_crt_line(canvas, read_hist, max_io, CRT_GREEN)
-    draw_crt_line(canvas, write_hist, max_io, "white")
-
-def draw_metric(canvas, series, max_value, color=CRT_GREEN):
-    canvas.delete("all")
-    draw_crt_grid(canvas)
-    draw_crt_line(canvas, series, max_value, color)
-
-# ---- Build metric frame ----
-def build_metric_frame(parent, title, maxval=100, graph_height=GRAPH_HEIGHT):
-    f = tb.Labelframe(parent, text=title, bootstyle="white")
-    lbl = tb.Label(f, text=f"{title}: ...", anchor="w", font=FONT_TITLE, foreground=CRT_GREEN)
-    lbl.pack(fill=X, padx=4, pady=(4,2))
-
-    style_name = f"{title}.Horizontal.TProgressbar"
-    style.configure(style_name, troughcolor="black", background=CRT_GREEN, thickness=PROGRESS_THICKNESS)
-    bar = tb.Progressbar(f, bootstyle="success", maximum=maxval, style=style_name)
-    bar._style_name = style_name
-    bar.pack(fill=X, padx=4, pady=(0,4))
-
-    cvs = tb.Canvas(f, height=graph_height, background="black", highlightthickness=0)
-    cvs.pack(fill=BOTH, expand=True, padx=4, pady=4)
-    return f, lbl, bar, cvs
 
 # ==== Layout ====
 metric_list = [
@@ -92,10 +46,12 @@ for metric in metric_list:
     colspan = metric.get("colspan", 1)
 
     if metric.get("io", False):
-        f = tb.Labelframe(root, text=name, bootstyle="white")
+        f = tb.Labelframe(root, text=name, bootstyle=FONT_TAB_TITLE_COLOR)
         f.grid(row=row, column=col, columnspan=colspan, sticky="nsew", padx=4, pady=4)
+        root.rowconfigure(row, weight=1)
+        root.columnconfigure(col, weight=1)
 
-        io_read_lbl = tb.Label(f, text="READ: ...", anchor="w", font=("Courier", 8, "bold"), foreground=CRT_GREEN)
+        io_read_lbl = tb.Label(f, text="READ: ...", anchor="w", font=FONT_TITLE, foreground=CRT_GREEN)
         io_read_lbl.pack(fill=X, padx=4, pady=(2,0))
         io_read_bar_style = f"IORead.Horizontal.TProgressbar"
         style.configure(io_read_bar_style, troughcolor="black", background=CRT_GREEN, thickness=PROGRESS_THICKNESS)
@@ -103,7 +59,7 @@ for metric in metric_list:
         io_read_bar._style_name = io_read_bar_style
         io_read_bar.pack(fill=X, padx=4, pady=(0,2))
 
-        io_write_lbl = tb.Label(f, text="WRITE: ...", anchor="w", font=("Courier", 8, "bold"), foreground="white")
+        io_write_lbl = tb.Label(f, text="WRITE: ...", anchor="w", font=FONT_TITLE, foreground="white")
         io_write_lbl.pack(fill=X, padx=4, pady=(2,0))
         io_write_bar_style = f"IOWrite.Horizontal.TProgressbar"
         style.configure(io_write_bar_style, troughcolor="black", background="white", thickness=PROGRESS_THICKNESS)
@@ -116,31 +72,37 @@ for metric in metric_list:
         widgets[name] = (io_read_lbl, io_write_lbl, io_read_bar, io_write_bar, io_canvas)
 
     elif metric.get("sysinfo", False):
-        f = tb.Labelframe(root, text="System Info & Time", bootstyle="white")
+        f = tb.Labelframe(root, text="System Info & Time", bootstyle=FONT_TAB_TITLE_COLOR)
         f.grid(row=row, column=col, columnspan=colspan, sticky="nsew", padx=4, pady=4)
+        root.rowconfigure(row, weight=1)
+        for c in range(col, col+colspan):
+            root.columnconfigure(c, weight=1)
 
-        # Time / Uptime large
-        time_lbl = tb.Label(f, text="Time: ...", anchor="w", font=("Courier", 15, "bold"), foreground=CRT_GREEN)
+        time_lbl = tb.Label(f, text="Time: ...", anchor="w", font=("FONT_TITLE", 20, "bold"), foreground=CRT_GREEN)
         time_lbl.pack(fill=X, pady=(10,2))
-        uptime_lbl = tb.Label(f, text="Uptime: ...", anchor="w", font=("Courier", 15, "bold"), foreground=CRT_GREEN)
+        uptime_lbl = tb.Label(f, text="Uptime: ...", anchor="w", font=("FONT_TITLE", 15, "bold"), foreground=CRT_GREEN)
         uptime_lbl.pack(fill=X, pady=(2,10))
 
-        # System info smaller
         info_labels = {}
         for key in ["CPU Model", "Cores", "Threads", "GPU"]:
-            lbl = tb.Label(f, text=f"{key}: ...", anchor="w", font=("Courier", 10, "bold"), foreground=CRT_GREEN)
+            lbl = tb.Label(f, text=f"{key}: ...", anchor="w", font=FONT_TITLE, foreground=CRT_GREEN)
             lbl.pack(fill=X, padx=4, pady=1)
             info_labels[key] = lbl
         widgets[name] = (time_lbl, uptime_lbl, info_labels)
 
     else:
-        f, lbl, bar, cvs = build_metric_frame(root, name)
+        f, lbl, bar, cvs, overlay_lbl = build_metric_frame(root, name, style=style)
         f.grid(row=row, column=col, sticky="nsew", padx=4, pady=4)
-        widgets[name] = (lbl, bar, cvs, metric["maxval"])
+        root.rowconfigure(row, weight=1)
+        root.columnconfigure(col, weight=1)
+        widgets[name] = (lbl, bar, cvs, metric["maxval"], overlay_lbl)
+        if name == "RAM" and overlay_lbl:
+            bar.bind("<Configure>", lambda e, b=bar, l=overlay_lbl: center_overlay_label(b, l))
 
 # ==== Update function ====
 def update_stats():
-    # CPU / RAM / GPU
+    global frame_count
+    frame_count += 3
     cpu = core.get_cpu_usage()
     ram_percent = core.get_ram_usage()
     gpu = core.get_gpu_usage()
@@ -151,20 +113,25 @@ def update_stats():
         if val is None: continue
         history[key].append(val)
         if len(history[key]) > MAX_POINTS: history[key].pop(0)
-        lbl, bar, cvs, maxv = widgets[key]
+        widget_tuple = widgets[key]
+        lbl, bar, cvs, maxv = widget_tuple[:4]
+        overlay_lbl = widget_tuple[4] if len(widget_tuple) > 4 else None
 
         lbl_color = get_usage_color(val) if val == max_metric else CRT_GREEN
         lbl.config(foreground=lbl_color, text=f"{key} Usage: {val:.1f}%")
         style.configure(bar._style_name, background=lbl_color)
         bar["value"] = val
-        draw_metric(cvs, history[key], maxv, color=lbl_color)
+        draw_metric(cvs, history[key], maxv, color=lbl_color, frame_count=frame_count)
 
-        # RAM inline used/free
         if key == "RAM":
             ram_info = core.get_ram_info()
-            lbl.config(text=f"RAM Utilized: {ram_info['used']} GB Used | {ram_info['available']} GB Left | ({val:.1f}%)")
+            lbl.config(text=f"RAM Utilized: {val:.1f}%")
+            if overlay_lbl:
+                overlay_lbl.config(
+                    text=f"used {ram_info['used']} GB / free {ram_info['available']} GB",
+                    background=lbl_color
+                )
 
-    # Disk I/O
     read_mb, write_mb = core.get_disk_io(interval=0.5)
     if read_mb is not None:
         io_read_lbl, io_write_lbl, io_read_bar, io_write_bar, io_canvas = widgets["Disk I/O"]
@@ -177,9 +144,8 @@ def update_stats():
         if len(history["DISK_read"]) > MAX_POINTS:
             history["DISK_read"].pop(0)
             history["DISK_write"].pop(0)
-        draw_dual_io(io_canvas, history["DISK_read"], history["DISK_write"])
+        draw_dual_io(io_canvas, history["DISK_read"], history["DISK_write"], frame_count=frame_count)
 
-    # System Info & Time
     time_lbl, uptime_lbl, info_labels = widgets["Sys Info & Time"]
     time_lbl.config(text=f"Time: {core.get_local_time()}")
     uptime_lbl.config(text=f"Uptime: {core.get_uptime()}")
