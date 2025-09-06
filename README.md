@@ -1,18 +1,26 @@
-#REQUIRED DEPENDECY CHECK
+# REQUIRED DEPENDECY CHECK
 -psutils
 -ttkbootstrap
+-wmi (cache)
 
-#version 0.0.35 as of last updated
+# version 0.0.35 as of last updated
 -cleaned main gui and split sections for tabs
 -constants, crt_graphics, widgets as their own
 -update monitor_core.py accordingly as of last 0.0.3
 
-==== Feature to do list ======
+## ==== Feature to do list ======
 1. bar still looks dodo find a way to make it seamelss (RAM)
 2. Sizing constraints and readability fine tuning
 3. network usage? average latency?
 4. terminal logging for random stuff
 
+EXAMPLE FOR FORMATING IN README
+# A first-level heading
+## A second-level heading
+### A third-level heading
+
+
+# use for batch style setup for dependcy
 import sys
 import subprocess
 

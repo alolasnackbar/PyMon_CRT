@@ -127,7 +127,7 @@ def update_stats():
                 freq_ghz = core_freq / 1000
                 lbl.config(
                     foreground=lbl_color,
-                    text=f"CPU Usage: {val:.1f}%  CPU Hz: {freq_ghz:.1f} GHz"
+                    text=f"CPU Usage: {val:.1f}%  CPU Speed: {freq_ghz:.1f} GHz"
                 )
             else:
                 lbl.config(
@@ -171,7 +171,7 @@ def update_stats():
     cpu_info = core.get_cpu_info()
     gpu_info = core.get_gpu_info()
     info_labels["CPU Model"].config(text=f"CPU Model: {cpu_info['model']}")
-    info_labels["Cores"].config(text=f"Cores: {cpu_info['physical_cores']} Threads: {cpu_info['logical_cores']}")
+    info_labels["Cores"].config(text=f"{cpu_info['physical_cores']} CORES | {cpu_info['logical_cores']} THREADS | {freq_ghz:.1f} average GHZ")
     #info_labels["Threads"].config(text=f"Threads: {cpu_info['logical_cores']}")
     info_labels["GPU"].config(text=f"GPU: {gpu_info}")
 
