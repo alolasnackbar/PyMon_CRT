@@ -165,3 +165,5 @@ def get_gpu_vram(): #required library GPUtil for wins/ only working in linux
         return used, total
     except Exception:
         return None, None
+
+print("all working no bug yet...")
