@@ -13,12 +13,12 @@ frame_count = 0
 # ==== Main GUI setup ====
 root = tb.Window(themename="darkly")
 root.title("AlohaSnackBar Hardware Monitor")
-root.geometry("960x700")
+root.geometry("960x640")
 
 # Configure root grid weights for responsiveness
-for i in range(3):
+for i in range(3):  # 3 rows: CPU, RAM, GPU (left), Disk, SysInfo (right)
     root.rowconfigure(i, weight=1)
-for i in range(2):
+for i in range(2):  # 2 columns: left and right
     root.columnconfigure(i, weight=1)
 
 style = tb.Style()
@@ -32,18 +32,18 @@ def get_usage_color(value):
 # ==== Layout ====
 metric_list = [
     {"name": "CPU", "maxval": 100, "row": 0, "col": 0},
-    {"name": "RAM", "maxval": 100, "row": 0, "col": 1},
-    {"name": "GPU", "maxval": 100, "row": 1, "col": 0},
-    {"name": "Disk I/O", "maxval": DISK_IO_MAX_MBPS, "row": 1, "col": 1, "io": True},
-    {"name": "Sys Info & Time", "row": 2, "col": 0, "colspan": 2, "sysinfo": True}
+    {"name": "RAM", "maxval": 100, "row": 1, "col": 0},
+    {"name": "GPU", "maxval": 100, "row": 2, "col": 0},
+    {"name": "Disk I/O", "maxval": DISK_IO_MAX_MBPS, "row": 0, "col": 1, "io": True},
+    {"name": "Sys Info & Time", "row": 1, "col": 1, "rowspan": 2, "sysinfo": True}
 ]
-
 widgets = {}
 
 for metric in metric_list:
     name = metric["name"]
     row, col = metric["row"], metric["col"]
     colspan = metric.get("colspan", 1)
+    rowspan = metric.get("rowspan", 1)  # Add this line
 
     if metric.get("io", False):
         f = tb.Labelframe(root, text=name, bootstyle=FONT_TAB_TITLE_COLOR)
@@ -73,18 +73,18 @@ for metric in metric_list:
 
     elif metric.get("sysinfo", False):
         f = tb.Labelframe(root, text="System Info & Time", bootstyle=FONT_TAB_TITLE_COLOR)
-        f.grid(row=row, column=col, columnspan=colspan, sticky="nsew", padx=4, pady=4)
+        f.grid(row=row, column=col, columnspan=colspan, rowspan=rowspan, sticky="nsew", padx=4, pady=4)
         root.rowconfigure(row, weight=1)
         for c in range(col, col+colspan):
             root.columnconfigure(c, weight=1)
 
-        time_lbl = tb.Label(f, text="Time: ...", anchor="w", font=("FONT_TITLE", 20, "bold"), foreground=CRT_GREEN)
+        time_lbl = tb.Label(f, text="Time: ...", anchor="w", font=("FONT_TITLE", 15, "bold"), foreground=CRT_GREEN)
         time_lbl.pack(fill=X, pady=(10,2))
-        uptime_lbl = tb.Label(f, text="Uptime: ...", anchor="w", font=("FONT_TITLE", 15, "bold"), foreground=CRT_GREEN)
+        uptime_lbl = tb.Label(f, text="Uptime: ...", anchor="w", font=("FONT_TITLE", 10, "bold"), foreground=CRT_GREEN)
         uptime_lbl.pack(fill=X, pady=(2,10))
 
         info_labels = {}
-        for key in ["CPU Model", "Cores", "Threads", "GPU"]:
+        for key in ["CPU Model", "Cores", "GPU"]:
             lbl = tb.Label(f, text=f"{key}: ...", anchor="w", font=FONT_TITLE, foreground=CRT_GREEN)
             lbl.pack(fill=X, padx=4, pady=1)
             info_labels[key] = lbl
@@ -105,9 +105,11 @@ def update_stats():
     frame_count += 3
     cpu = core.get_cpu_usage()
     ram_percent = core.get_ram_usage()
+    core_freq = core.get_cpu_freq()
     gpu = core.get_gpu_usage()
     usage_values = {"CPU": cpu, "RAM": ram_percent, "GPU": gpu}
     max_metric = max([v for v in usage_values.values() if v is not None] + [0])
+    #print(core_freq)
 
     for key, val in usage_values.items():
         if val is None: continue
@@ -118,7 +120,23 @@ def update_stats():
         overlay_lbl = widget_tuple[4] if len(widget_tuple) > 4 else None
 
         lbl_color = get_usage_color(val) if val == max_metric else CRT_GREEN
-        lbl.config(foreground=lbl_color, text=f"{key} Usage: {val:.1f}%")
+
+        # Show CPU Hz next to CPU usage
+        if key == "CPU":
+            if core_freq:
+                freq_ghz = core_freq / 1000
+                lbl.config(
+                    foreground=lbl_color,
+                    text=f"CPU Usage: {val:.1f}%  CPU Hz: {freq_ghz:.1f} GHz"
+                )
+            else:
+                lbl.config(
+                    foreground=lbl_color,
+                    text=f"CPU Usage: {val:.1f}%  CPU Hz: N/A"
+                )
+        else:
+            lbl.config(foreground=lbl_color, text=f"{key} Usage: {val:.1f}%")
+
         style.configure(bar._style_name, background=lbl_color)
         bar["value"] = val
         draw_metric(cvs, history[key], maxv, color=lbl_color, frame_count=frame_count)
@@ -153,8 +171,8 @@ def update_stats():
     cpu_info = core.get_cpu_info()
     gpu_info = core.get_gpu_info()
     info_labels["CPU Model"].config(text=f"CPU Model: {cpu_info['model']}")
-    info_labels["Cores"].config(text=f"Cores: {cpu_info['physical_cores']}")
-    info_labels["Threads"].config(text=f"Threads: {cpu_info['logical_cores']}")
+    info_labels["Cores"].config(text=f"Cores: {cpu_info['physical_cores']} Threads: {cpu_info['logical_cores']}")
+    #info_labels["Threads"].config(text=f"Threads: {cpu_info['logical_cores']}")
     info_labels["GPU"].config(text=f"GPU: {gpu_info}")
 
     root.after(REFRESH_MS, update_stats)

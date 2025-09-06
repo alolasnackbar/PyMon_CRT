@@ -7,6 +7,13 @@ from datetime import datetime, timedelta
 def get_cpu_usage(interval=0.1):
     return psutil.cpu_percent(interval=interval)
 
+def get_cpu_freq():
+    freqs = psutil.cpu_freq(percpu=True)
+    if freqs:
+        avg = sum(f.current for f in freqs) / len(freqs)
+        return round(avg, 2)  # in MHz
+    return None
+
 def get_cpu_info():
     return {
         "model": platform.processor(),
@@ -72,7 +79,7 @@ def get_gpu_vram():
 
 # ---- Time & Uptime ----
 def get_local_time():
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.now().strftime("%a, %b %d, %Y | %H:%M:%S")
 
 def get_uptime():
     boot_time = datetime.fromtimestamp(psutil.boot_time())
