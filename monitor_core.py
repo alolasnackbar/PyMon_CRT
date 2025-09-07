@@ -2,168 +2,315 @@ import sys
 import psutil
 import subprocess
 import platform
-import wmi
-from datetime import datetime, timedelta
+import time
+import shutil
+import re
+from datetime import datetime
+
+# ---- Optional Windows WMI (for CPU model) ----
+WMI_AVAILABLE = False
+if platform.system() == "Windows":
+    try:
+        import wmi  # type: ignore
+        WMI_AVAILABLE = True
+    except Exception:
+        WMI_AVAILABLE = False
+
+# ---- Helpers ----
+def _which(cmd: str) -> bool:
+    return shutil.which(cmd) is not None
+
+def _run_cmd(args, timeout=0.3):
+    try:
+        out = subprocess.check_output(args, stderr=subprocess.DEVNULL, timeout=timeout, text=True)
+        return out.strip()
+    except Exception:
+        return None
 
 # ---- CPU ----
-def get_cpu_usage(interval=0.1):
-    return psutil.cpu_percent(interval=interval)
+def get_cpu_usage(interval=None):
+    """
+    Return CPU usage percent.
+    - interval=None: instantaneous (requires prior warmup call by psutil).
+    - interval>0: blocks for that interval.
+    """
+    try:
+        return psutil.cpu_percent(interval=interval)
+    except Exception:
+        return 0.0
 
 def get_cpu_freq():
-    max_freq = psutil.cpu_freq(percpu=True)
-    cpu_percent = psutil.cpu_percent(interval=0.1)  # get current usage
-    if max_freq is not None:
-        freq_avg = sum(f.current for f in max_freq) / len(max_freq)
-        estimated = freq_avg * (cpu_percent / 100) 
-        #print("freqav",freq_avg,"estimate", estimated)
-        return round(estimated + freq_avg, 2)  # in MHz estimated not real ghz
-    return None
+    """
+    Returns current average CPU frequency in GHz (float) or None.
+    """
+    try:
+        f = psutil.cpu_freq(percpu=True)
+        if not f:
+            f = psutil.cpu_freq(percpu=False)
+            if not f:
+                return None
+            return round(f.current / 1000.0, 2)
+        avg_mhz = sum(core.current for core in f) / len(f)
+        return round(avg_mhz / 1000.0, 2)
+    except Exception:
+        return None
 
-# ---- CPU Info (cached model) ----
+# ---- CPU Info (cached) ----
 _cpu_model_cache = None
-
 def get_cpu_info():
     global _cpu_model_cache
     if _cpu_model_cache is None:
         model = None
-        if platform.system() == "Windows":
-            try:
-                c = wmi.WMI()
+        try:
+            if platform.system() == "Windows" and WMI_AVAILABLE:
+                c = wmi.WMI()  # type: ignore
                 model = c.Win32_Processor()[0].Name
-            except Exception:
-                model = platform.processor()
-        else:
-            # Try to use lscpu or /proc/cpuinfo for Linux
-            try:
-                out = subprocess.check_output("lscpu", shell=True).decode()
-                for line in out.splitlines():
-                    if "Model name" in line:
-                        model = line.split(":", 1)[1].strip()
-                        break
-            except Exception:
-                pass
-            if not model:
-                try:
-                    with open("/proc/cpuinfo") as f:
-                        for line in f:
-                            if "model name" in line:
-                                model = line.split(":", 1)[1].strip()
-                                break
-                except Exception:
-                    pass
-            if not model:
-                model = platform.processor()
-        _cpu_model_cache = model
+            elif platform.system() == "Darwin":
+                out = _run_cmd(["sysctl", "-n", "machdep.cpu.brand_string"])
+                model = out or platform.processor()
+            else:
+                out = _run_cmd(["lscpu"])
+                if out:
+                    for line in out.splitlines():
+                        if "Model name" in line:
+                            model = line.split(":", 1)[1].strip()
+                            break
+                if not model:
+                    try:
+                        with open("/proc/cpuinfo") as f:
+                            for line in f:
+                                if "model name" in line:
+                                    model = line.split(":", 1)[1].strip()
+                                    break
+                    except Exception:
+                        pass
+                if not model:
+                    model = platform.processor() or platform.uname().processor
+        except Exception:
+            model = platform.processor() or "Unknown CPU"
+        _cpu_model_cache = model or "Unknown CPU"
 
     return {
         "model": _cpu_model_cache,
-        "physical_cores": psutil.cpu_count(logical=False),
-        "logical_cores": psutil.cpu_count(logical=True)
+        "physical_cores": psutil.cpu_count(logical=False) or 0,
+        "logical_cores": psutil.cpu_count(logical=True) or 0,
     }
 
 # ---- RAM ----
 def get_ram_usage():
-    return psutil.virtual_memory().percent
+    try:
+        return psutil.virtual_memory().percent
+    except Exception:
+        return 0.0
 
 def get_ram_info():
-    mem = psutil.virtual_memory()
-    return {
-        "used": round(mem.used / (1024**3), 2),
-        "available": round(mem.available / (1024**3), 2)
-    }
+    try:
+        mem = psutil.virtual_memory()
+        return {
+            "used": round(mem.used / (1024**3), 2),
+            "available": round(mem.available / (1024**3), 2),
+        }
+    except Exception:
+        return {"used": 0.0, "available": 0.0}
 
-# ---- Disk I/O ----
+# ---- Disk I/O (rate based on actual elapsed) ----
 _last_disk_io = psutil.disk_io_counters()
-def get_disk_io(interval=1.0):
-    global _last_disk_io
-    io_now = psutil.disk_io_counters()
-    read_bytes = io_now.read_bytes - _last_disk_io.read_bytes
-    write_bytes = io_now.write_bytes - _last_disk_io.write_bytes
-    _last_disk_io = io_now
-    return read_bytes / (1024*1024*interval), write_bytes / (1024*1024*interval)
+_last_disk_ts = time.time()
+
+def get_disk_io(interval=None):
+    """
+    Returns (read_MB_per_s, write_MB_per_s).
+    Uses actual elapsed time since the previous call for accuracy.
+    The 'interval' parameter is accepted for API compatibility but is not used to sleep.
+    """
+    global _last_disk_io, _last_disk_ts
+    try:
+        now = time.time()
+        io_now = psutil.disk_io_counters()
+        elapsed = max(1e-3, now - _last_disk_ts)  # avoid div by zero
+
+        read_bytes = io_now.read_bytes - _last_disk_io.read_bytes
+        write_bytes = io_now.write_bytes - _last_disk_io.write_bytes
+
+        _last_disk_io = io_now
+        _last_disk_ts = now
+
+        read_mb_s = read_bytes / (1024 * 1024) / elapsed
+        write_mb_s = write_bytes / (1024 * 1024) / elapsed
+        return read_mb_s, write_mb_s
+    except Exception:
+        return 0.0, 0.0
 
 # ---- GPU ----
+def _nvidia_smi_available():
+    return _which("nvidia-smi")
+
 def get_gpu_usage():
+    """
+    Returns GPU utilization percent (float) or None if not available.
+    NVIDIA only (via nvidia-smi).
+    """
+    if not _nvidia_smi_available():
+        return None
+    out = _run_cmd(["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"], timeout=0.25)
+    if not out:
+        return None
     try:
-        out = subprocess.check_output(
-            "nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits",
-            shell=True, stderr=subprocess.DEVNULL
-        ).decode().strip()
-        return float(out)
+        return float(out.splitlines()[0].strip())
     except Exception:
         return None
 
 def get_gpu_info():
-    try:
-        out = subprocess.check_output(
-            "nvidia-smi --query-gpu=name --format=csv,noheader",
-            shell=True, stderr=subprocess.DEVNULL
-        ).decode().strip()
-        return out
-    except Exception:
+    if not _nvidia_smi_available():
         return None
+    out = _run_cmd(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"], timeout=0.25)
+    return out if out else None
 
 # ---- Time & Uptime ----
 def get_local_time():
     return datetime.now().strftime("%a, %b %d, %Y | %H:%M:%S")
 
 def get_uptime():
-    boot_time = datetime.fromtimestamp(psutil.boot_time())
-    uptime = datetime.now() - boot_time
-    hours, remainder = divmod(uptime.total_seconds(), 3600)
-    minutes, seconds = divmod(remainder, 60)
-    return f"{int(hours)}h {int(minutes)}m {int(seconds)}s"
+    try:
+        boot_time = datetime.fromtimestamp(psutil.boot_time())
+        uptime = datetime.now() - boot_time
+        hours, remainder = divmod(int(uptime.total_seconds()), 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return f"{hours}h {minutes}m {seconds}s"
+    except Exception:
+        return "N/A"
 
-def main():
-    if not hasattr(psutil, "sensors_temperatures"):
-        sys.exit("platform not supported")
-    temps = psutil.sensors_temperatures()
-    if not temps:
-        sys.exit("can't read any temperature")
-    for name, entries in temps.items():
-        print(name)
-        for entry in entries:
-            line = "    {:<20} {} °C (high = {} °C, critical = %{} °C)".format(
-                entry.label or name,
-                entry.current,
-                entry.high,
-                entry.critical,
-            )
-            print(line)
-        print()
-
-if __name__ == '__main__':
-    main()
-    
-# ---- Top CPU Process ----
-def get_top_cpu_process(): #very DEMANDING UNUSED
-    """Returns (name, cpu_percent) of the process using the most CPU."""
-    processes = []
-    for proc in psutil.process_iter(['name', 'cpu_percent']):
-        try:
-            cpu = proc.info['cpu_percent']
-            if cpu == 0.0:
-                cpu = proc.cpu_percent(interval=0.1)
-            processes.append((proc.info['name'], cpu))
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            continue
-    if not processes:
-        return ("N/A", 0.0)
-    top = max(processes, key=lambda x: x[1])
-    return top
-
-# ---- GPU VRAM Usage ----
-def get_gpu_vram(): #required library GPUtil for wins/ only working in linux
+# --- Network selection ---
+def get_primary_interface():
     """
-    Returns used and total VRAM in GB.
+    Auto-select the main active interface, ignoring loopback and common virtuals.
     """
     try:
-        import GPUtil
-        gpu = GPUtil.getGPUs()[0]  # Take the first GPU
-        used = round(gpu.memoryUsed / 1024, 2)  # Convert MB to GB
+        stats = psutil.net_io_counters(pernic=True)
+        candidates = []
+        for iface, data in stats.items():
+            low = iface.lower()
+            if low in ("lo", "loopback") or "docker" in low or "veth" in low or "virtual" in low:
+                continue
+            if data.bytes_sent > 0 or data.bytes_recv > 0:
+                candidates.append(iface)
+        return candidates[0] if candidates else None
+    except Exception:
+        return None
+
+# --- Ping (with timeouts and robust parsing) ---
+def ping_host(host="8.8.8.8", count=3, timeout=1.5):
+    """
+    Ping host and return average latency in ms (float) or None.
+    Works on Windows/macOS/Linux.
+    """
+    param = "-n" if platform.system().lower() == "windows" else "-c"
+    try:
+        output = subprocess.check_output(
+            ["ping", param, str(count), host],
+            universal_newlines=True,
+            stderr=subprocess.DEVNULL,
+            timeout=timeout
+        )
+    except Exception:
+        return None
+
+    # Try Windows "Average = 12ms"
+    m = re.search(r"Average\s*=\s*(\d+(?:\.\d+)?)\s*ms", output, re.IGNORECASE)
+    if m:
+        return float(m.group(1))
+
+    # Try Linux/macOS "min/avg/max/mdev = a/b/c/d ms"
+    m = re.search(r"=\s*([\d\.]+)/([\d\.]+)/", output)
+    if m:
+        try:
+            return float(m.group(2))
+        except Exception:
+            return None
+
+    # Fallback: last number with 'ms' on line containing avg
+    for line in output.splitlines():
+        if "avg" in line or "Average" in line or "round-trip" in line or "rtt" in line:
+            nums = re.findall(r"[\d\.]+", line)
+            if nums:
+                try:
+                    return float(nums[-1])
+                except Exception:
+                    pass
+    return None
+
+def net_usage_latency(interface=None, ping_host_addr="8.8.8.8", ping_count=3, interval=1):
+    """
+    Return (net_in_MB_per_s, net_out_MB_per_s, avg_latency_ms).
+    Sleeps for 'interval' seconds to sample I/O deltas.
+    Intended for use in a background thread.
+    """
+    try:
+        if interface is None:
+            interface = get_primary_interface()
+        if interface is None:
+            return 0.0, 0.0, None
+
+        pernic1 = psutil.net_io_counters(pernic=True)
+        if interface not in pernic1:
+            return 0.0, 0.0, None
+
+        bytes_recv1 = pernic1[interface].bytes_recv
+        bytes_sent1 = pernic1[interface].bytes_sent
+
+        time.sleep(interval)
+
+        pernic2 = psutil.net_io_counters(pernic=True)
+        if interface not in pernic2:
+            return 0.0, 0.0, None
+
+        bytes_recv2 = pernic2[interface].bytes_recv
+        bytes_sent2 = pernic2[interface].bytes_sent
+
+        net_in_MB = round((bytes_recv2 - bytes_recv1) / 1024 / 1024 / interval, 3)
+        net_out_MB = round((bytes_sent2 - bytes_sent1) / 1024 / 1024 / interval, 3)
+
+        avg_latency = ping_host(ping_host_addr, ping_count)
+        return net_in_MB, net_out_MB, avg_latency
+    except Exception:
+        return 0.0, 0.0, None
+
+# ---- Top CPU Process (expensive; keep optional) ----
+def get_top_cpu_process():
+    """
+    Returns (name, cpu_percent) of the top CPU process.
+    Note: potentially expensive; call sparingly or in a background thread.
+    """
+    try:
+        processes = []
+        for proc in psutil.process_iter(['name', 'cpu_percent']):
+            try:
+                cpu = proc.info['cpu_percent']
+                if cpu == 0.0:
+                    cpu = proc.cpu_percent(interval=0.1)
+                processes.append((proc.info['name'] or "Unknown", cpu))
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        if not processes:
+            return ("N/A", 0.0)
+        return max(processes, key=lambda x: x[1])
+    except Exception:
+        return ("N/A", 0.0)
+
+# ---- GPU VRAM Usage (optional; Linux best) ----
+def get_gpu_vram():
+    """
+    Returns (used_GB, total_GB) or (None, None).
+    Requires GPUtil on Windows; more reliable on Linux.
+    """
+    try:
+        import GPUtil  # type: ignore
+        gpus = GPUtil.getGPUs()
+        if not gpus:
+            return None, None
+        gpu = gpus[0]
+        used = round(gpu.memoryUsed / 1024, 2)
         total = round(gpu.memoryTotal / 1024, 2)
         return used, total
     except Exception:
         return None, None
-
-print("all working no bug yet...")

@@ -1,6 +1,7 @@
 import ttkbootstrap as tb
 from ttkbootstrap.constants import *
 import monitor_core as core
+import threading
 
 from constants import *
 from crt_graphics import draw_crt_grid, draw_crt_line, draw_dual_io, draw_metric
@@ -9,16 +10,20 @@ from widgets import build_metric_frame, center_overlay_label
 # ==== Global settings ====
 history = {"CPU": [], "RAM": [], "GPU": [], "DISK_read": [], "DISK_write": []}
 frame_count = 0
+network_results = {"in_MB": 0, "out_MB": 0, "latency_ms": 0}  # store latest network stats
+NETWORK_INTERFACE = None  # set your interface, e.g., "eth0" or "Wi-Fi"
+PING_HOST = "8.8.8.8"
+PING_COUNT = 3
 
 # ==== Main GUI setup ====
 root = tb.Window(themename="darkly")
 root.title("AlohaSnackBar Hardware Monitor")
 root.geometry("960x640")
 
-# Configure root grid weights for responsiveness
-for i in range(3):  # 3 rows: CPU, RAM, GPU (left), Disk, SysInfo (right)
+# Configure root grid weights
+for i in range(3):  # rows
     root.rowconfigure(i, weight=1)
-for i in range(2):  # 2 columns: left and right
+for i in range(2):  # columns
     root.columnconfigure(i, weight=1)
 
 style = tb.Style()
@@ -32,8 +37,8 @@ def get_usage_color(value):
 # ==== Layout ====
 metric_list = [
     {"name": "CPU", "maxval": 100, "row": 0, "col": 0},
-    {"name": "RAM", "maxval": 100, "row": 1, "col": 0},
-    {"name": "GPU", "maxval": 100, "row": 2, "col": 0},
+    {"name": "GPU", "maxval": 100, "row": 1, "col": 0},
+    {"name": "RAM", "maxval": 100, "row": 2, "col": 0}, 
     {"name": "Disk I/O", "maxval": DISK_IO_MAX_MBPS, "row": 0, "col": 1, "io": True},
     {"name": "Sys Info & Time", "row": 1, "col": 1, "rowspan": 2, "sysinfo": True}
 ]
@@ -43,7 +48,7 @@ for metric in metric_list:
     name = metric["name"]
     row, col = metric["row"], metric["col"]
     colspan = metric.get("colspan", 1)
-    rowspan = metric.get("rowspan", 1)  # Add this line
+    rowspan = metric.get("rowspan", 1)
 
     if metric.get("io", False):
         f = tb.Labelframe(root, text=name, bootstyle=FONT_TAB_TITLE_COLOR)
@@ -88,6 +93,19 @@ for metric in metric_list:
             lbl = tb.Label(f, text=f"{key}: ...", anchor="w", font=FONT_TITLE, foreground=CRT_GREEN)
             lbl.pack(fill=X, padx=4, pady=1)
             info_labels[key] = lbl
+
+        # Network info labels
+        net_in_lbl = tb.Label(f, text="Net IN: ... MB/s", anchor="w", font=FONT_TITLE, foreground=CRT_GREEN)
+        net_in_lbl.pack(fill=X, padx=4, pady=1)
+        net_out_lbl = tb.Label(f, text="Net OUT: ... MB/s", anchor="w", font=FONT_TITLE, foreground=CRT_GREEN)
+        net_out_lbl.pack(fill=X, padx=4, pady=1)
+        latency_lbl = tb.Label(f, text="Latency: ... ms", anchor="w", font=FONT_TITLE, foreground=CRT_GREEN)
+        latency_lbl.pack(fill=X, padx=4, pady=1)
+
+        info_labels["Net IN"] = net_in_lbl
+        info_labels["Net OUT"] = net_out_lbl
+        info_labels["Latency"] = latency_lbl
+
         widgets[name] = (time_lbl, uptime_lbl, info_labels)
 
     else:
@@ -99,6 +117,26 @@ for metric in metric_list:
         if name == "RAM" and overlay_lbl:
             bar.bind("<Configure>", lambda e, b=bar, l=overlay_lbl: center_overlay_label(b, l))
 
+# ==== Background network update ====
+def update_network_stats():
+    """Run network usage & ping in a separate thread."""
+    global network_results
+    try:
+        net_in, net_out, avg_latency = core.net_usage_latency(
+            interface=NETWORK_INTERFACE, 
+            ping_host_addr=PING_HOST,  # matches core function
+            ping_count=PING_COUNT
+        )
+        network_results["in_MB"] = net_in
+        network_results["out_MB"] = net_out
+        network_results["latency_ms"] = avg_latency
+    except Exception as e:
+        print("Network stats error:", e)
+
+def schedule_network_update():
+    threading.Thread(target=update_network_stats, daemon=True).start()
+    root.after(1000, schedule_network_update)  # every 1 second
+
 # ==== Update function ====
 def update_stats():
     global frame_count
@@ -109,7 +147,6 @@ def update_stats():
     gpu = core.get_gpu_usage()
     usage_values = {"CPU": cpu, "RAM": ram_percent, "GPU": gpu}
     max_metric = max([v for v in usage_values.values() if v is not None] + [0])
-    #print(core_freq)
 
     for key, val in usage_values.items():
         if val is None: continue
@@ -150,6 +187,7 @@ def update_stats():
                     background=lbl_color
                 )
 
+    # Disk I/O
     read_mb, write_mb = core.get_disk_io(interval=0.5)
     if read_mb is not None:
         io_read_lbl, io_write_lbl, io_read_bar, io_write_bar, io_canvas = widgets["Disk I/O"]
@@ -164,6 +202,7 @@ def update_stats():
             history["DISK_write"].pop(0)
         draw_dual_io(io_canvas, history["DISK_read"], history["DISK_write"], frame_count=frame_count)
 
+    # System info
     time_lbl, uptime_lbl, info_labels = widgets["Sys Info & Time"]
     time_lbl.config(text=f"Time: {core.get_local_time()}")
     uptime_lbl.config(text=f"Uptime: {core.get_uptime()}")
@@ -172,10 +211,18 @@ def update_stats():
     gpu_info = core.get_gpu_info()
     info_labels["CPU Model"].config(text=f"CPU Model: {cpu_info['model']}")
     info_labels["Cores"].config(text=f"{cpu_info['physical_cores']} CORES | {cpu_info['logical_cores']} THREADS | {freq_ghz:.1f} average GHZ")
-    #info_labels["Threads"].config(text=f"Threads: {cpu_info['logical_cores']}")
     info_labels["GPU"].config(text=f"GPU: {gpu_info}")
 
+    # Non-blocking network stats
+    info_labels["Net IN"].config(text=f"Net IN: {network_results['in_MB']:.2f} MB/s")
+    info_labels["Net OUT"].config(text=f"Net OUT: {network_results['out_MB']:.2f} MB/s")
+    lat = network_results['latency_ms']
+    info_labels["Latency"].config(text=f"Latency: {lat:.1f} ms" if lat is not None else "Latency: N/A")
     root.after(REFRESH_MS, update_stats)
+    #print("checking", network_results)
+    
+# ==== Start everything ====
+schedule_network_update()
 
 update_stats()
 root.mainloop()
