@@ -28,23 +28,14 @@ for i in range(2):  # columns
 
 style = tb.Style()
 
+# ==== Build Metrics ====
+widgets = build_metrics(root, style)
+
 # ---- Helper functions ----
 def get_usage_color(value):
     if value < 60: return CRT_GREEN
     elif value < 80: return CRT_YELLOW
     else: return CRT_RED
-
-# ==== Layout ====
-metric_list = [
-    {"name": "CPU", "maxval": 100, "row": 0, "col": 0},
-    {"name": "GPU", "maxval": 100, "row": 1, "col": 0},
-    {"name": "RAM", "maxval": 100, "row": 2, "col": 0}, 
-    {"name": "Disk I/O", "maxval": DISK_IO_MAX_MBPS, "row": 0, "col": 1, "io": True},
-    {"name": "Sys Info & Time", "row": 1, "col": 1, "rowspan": 2, "sysinfo": True}
-]
-
-# ==== Build Metrics ====
-widgets = build_metrics(root, style)
 
 # ==== Background network update ====
 def update_network_stats():
@@ -70,6 +61,7 @@ def schedule_network_update():
 def update_stats():
     global frame_count
     frame_count += 3
+
     cpu = core.get_cpu_usage()
     ram_percent = core.get_ram_usage()
     core_freq = core.get_cpu_freq()
@@ -77,17 +69,17 @@ def update_stats():
     usage_values = {"CPU": cpu, "RAM": ram_percent, "GPU": gpu}
     max_metric = max([v for v in usage_values.values() if v is not None] + [0])
 
+    # === Update CPU, GPU, RAM ===
     for key, val in usage_values.items():
-        if val is None: continue
+        if val is None:
+            continue
         history[key].append(val)
-        if len(history[key]) > MAX_POINTS: history[key].pop(0)
-        widget_tuple = widgets[key]
-        lbl, bar, cvs, maxv = widget_tuple[:4]
-        overlay_lbl = widget_tuple[4] if len(widget_tuple) > 4 else None
+        if len(history[key]) > MAX_POINTS:
+            history[key].pop(0)
 
+        lbl, bar, cvs, maxv, overlay_lbl = widgets[key]
         lbl_color = get_usage_color(val) if val == max_metric else CRT_GREEN
 
-        # Show CPU Hz next to CPU usage
         if key == "CPU":
             if core_freq:
                 freq_ghz = core_freq / 1000
@@ -112,12 +104,11 @@ def update_stats():
             lbl.config(text=f"RAM Utilized: {val:.1f}%")
             if overlay_lbl:
                 overlay_lbl.config(
-                    #text=f"used {ram_info['used']} GB / free {ram_info['available']} GB", background=lbl_color
                     text=f"used {ram_info['used']} GB / free {ram_info['available']} GB",
                     background=lbl_color
                 )
 
-    # Disk I/O
+    # === Disk I/O ===
     read_mb, write_mb = core.get_disk_io(interval=0.5)
     if read_mb is not None:
         io_read_lbl, io_write_lbl, io_read_bar, io_write_bar, io_canvas = widgets["Disk I/O"]
@@ -132,27 +123,31 @@ def update_stats():
             history["DISK_write"].pop(0)
         draw_dual_io(io_canvas, history["DISK_read"], history["DISK_write"], frame_count=frame_count)
 
-    # System info
-    time_lbl, uptime_lbl, info_labels = widgets["Sys Info & Time"]
-    time_lbl.config(text=f"Time: {core.get_local_time()}")
-    uptime_lbl.config(text=f"Uptime: {core.get_uptime()}")
-
+    # === Sys Info Tab ===
+    info_labels = widgets["Sys Info"]
     cpu_info = core.get_cpu_info()
     gpu_info = core.get_gpu_info()
     info_labels["CPU Model"].config(text=f"CPU Model: {cpu_info['model']}")
-    info_labels["Cores"].config(text=f"{cpu_info['physical_cores']} CORES | {cpu_info['logical_cores']} THREADS | {freq_ghz:.1f} average GHZ")
+    info_labels["Cores"].config(
+        text=f"{cpu_info['physical_cores']} CORES | {cpu_info['logical_cores']} THREADS | {core_freq/1000:.1f} GHz"
+    )
     info_labels["GPU"].config(text=f"GPU: {gpu_info}")
-
-    # Non-blocking network stats
     info_labels["Net IN"].config(text=f"Net IN: {network_results['in_MB']:.2f} MB/s")
     info_labels["Net OUT"].config(text=f"Net OUT: {network_results['out_MB']:.2f} MB/s")
     lat = network_results['latency_ms']
-    info_labels["Latency"].config(text=f"Latency: {lat:.1f} ms" if lat is not None else "Latency: N/A")
+    info_labels["Latency"].config(
+        text=f"Latency: {lat:.1f} ms" if lat is not None else "Latency: N/A"
+    )
+
+    # === Dedicated Time & Uptime widget ===
+    time_lbl, uptime_lbl = widgets["Time & Uptime"]
+    time_lbl.config(text=f"Time: {core.get_local_time()}")
+    uptime_lbl.config(text=f"Uptime: {core.get_uptime()}")
+
+    # schedule next update
     root.after(REFRESH_MS, update_stats)
-    #print("checking", network_results)
-    
+
 # ==== Start everything ====
 schedule_network_update()
-
 update_stats()
 root.mainloop()
