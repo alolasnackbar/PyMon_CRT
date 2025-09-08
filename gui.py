@@ -5,13 +5,13 @@ import threading
 
 from constants import *
 from crt_graphics import draw_crt_grid, draw_crt_line, draw_dual_io, draw_metric
-from widgets import build_metric_frame, center_overlay_label
+from metrics_layout import build_metrics   # <-- NEW import
 
 # ==== Global settings ====
 history = {"CPU": [], "RAM": [], "GPU": [], "DISK_read": [], "DISK_write": []}
 frame_count = 0
-network_results = {"in_MB": 0, "out_MB": 0, "latency_ms": 0}  # store latest network stats
-NETWORK_INTERFACE = None  # set your interface, e.g., "eth0" or "Wi-Fi"
+network_results = {"in_MB": 0, "out_MB": 0, "latency_ms": 0}
+NETWORK_INTERFACE = None
 PING_HOST = "8.8.8.8"
 PING_COUNT = 3
 
@@ -42,80 +42,9 @@ metric_list = [
     {"name": "Disk I/O", "maxval": DISK_IO_MAX_MBPS, "row": 0, "col": 1, "io": True},
     {"name": "Sys Info & Time", "row": 1, "col": 1, "rowspan": 2, "sysinfo": True}
 ]
-widgets = {}
 
-for metric in metric_list:
-    name = metric["name"]
-    row, col = metric["row"], metric["col"]
-    colspan = metric.get("colspan", 1)
-    rowspan = metric.get("rowspan", 1)
-
-    if metric.get("io", False):
-        f = tb.Labelframe(root, text=name, bootstyle=FONT_TAB_TITLE_COLOR)
-        f.grid(row=row, column=col, columnspan=colspan, sticky="nsew", padx=4, pady=4)
-        root.rowconfigure(row, weight=1)
-        root.columnconfigure(col, weight=1)
-
-        io_read_lbl = tb.Label(f, text="READ: ...", anchor="w", font=FONT_TITLE, foreground=CRT_GREEN)
-        io_read_lbl.pack(fill=X, padx=4, pady=(2,0))
-        io_read_bar_style = f"IORead.Horizontal.TProgressbar"
-        style.configure(io_read_bar_style, troughcolor="black", background=CRT_GREEN, thickness=PROGRESS_THICKNESS)
-        io_read_bar = tb.Progressbar(f, bootstyle="success", maximum=DISK_IO_MAX_MBPS, style=io_read_bar_style)
-        io_read_bar._style_name = io_read_bar_style
-        io_read_bar.pack(fill=X, padx=4, pady=(0,2))
-
-        io_write_lbl = tb.Label(f, text="WRITE: ...", anchor="w", font=FONT_TITLE, foreground="white")
-        io_write_lbl.pack(fill=X, padx=4, pady=(2,0))
-        io_write_bar_style = f"IOWrite.Horizontal.TProgressbar"
-        style.configure(io_write_bar_style, troughcolor="black", background="white", thickness=PROGRESS_THICKNESS)
-        io_write_bar = tb.Progressbar(f, bootstyle="success", maximum=DISK_IO_MAX_MBPS, style=io_write_bar_style)
-        io_write_bar._style_name = io_write_bar_style
-        io_write_bar.pack(fill=X, padx=4, pady=(0,2))
-
-        io_canvas = tb.Canvas(f, height=GRAPH_HEIGHT, background="black", highlightthickness=0)
-        io_canvas.pack(fill=BOTH, expand=True, padx=4, pady=4)
-        widgets[name] = (io_read_lbl, io_write_lbl, io_read_bar, io_write_bar, io_canvas)
-
-    elif metric.get("sysinfo", False):
-        f = tb.Labelframe(root, text="System Info & Time", bootstyle=FONT_TAB_TITLE_COLOR)
-        f.grid(row=row, column=col, columnspan=colspan, rowspan=rowspan, sticky="nsew", padx=4, pady=4)
-        root.rowconfigure(row, weight=1)
-        for c in range(col, col+colspan):
-            root.columnconfigure(c, weight=1)
-
-        time_lbl = tb.Label(f, text="Time: ...", anchor="w", font=("FONT_TITLE", 15, "bold"), foreground=CRT_GREEN)
-        time_lbl.pack(fill=X, pady=(10,2))
-        uptime_lbl = tb.Label(f, text="Uptime: ...", anchor="w", font=("FONT_TITLE", 10, "bold"), foreground=CRT_GREEN)
-        uptime_lbl.pack(fill=X, pady=(2,10))
-
-        info_labels = {}
-        for key in ["CPU Model", "Cores", "GPU"]:
-            lbl = tb.Label(f, text=f"{key}: ...", anchor="w", font=FONT_TITLE, foreground=CRT_GREEN)
-            lbl.pack(fill=X, padx=4, pady=1)
-            info_labels[key] = lbl
-
-        # Network info labels
-        net_in_lbl = tb.Label(f, text="Net IN: ... MB/s", anchor="w", font=FONT_TITLE, foreground=CRT_GREEN)
-        net_in_lbl.pack(fill=X, padx=4, pady=1)
-        net_out_lbl = tb.Label(f, text="Net OUT: ... MB/s", anchor="w", font=FONT_TITLE, foreground=CRT_GREEN)
-        net_out_lbl.pack(fill=X, padx=4, pady=1)
-        latency_lbl = tb.Label(f, text="Latency: ... ms", anchor="w", font=FONT_TITLE, foreground=CRT_GREEN)
-        latency_lbl.pack(fill=X, padx=4, pady=1)
-
-        info_labels["Net IN"] = net_in_lbl
-        info_labels["Net OUT"] = net_out_lbl
-        info_labels["Latency"] = latency_lbl
-
-        widgets[name] = (time_lbl, uptime_lbl, info_labels)
-
-    else:
-        f, lbl, bar, cvs, overlay_lbl = build_metric_frame(root, name, style=style)
-        f.grid(row=row, column=col, sticky="nsew", padx=4, pady=4)
-        root.rowconfigure(row, weight=1)
-        root.columnconfigure(col, weight=1)
-        widgets[name] = (lbl, bar, cvs, metric["maxval"], overlay_lbl)
-        if name == "RAM" and overlay_lbl:
-            bar.bind("<Configure>", lambda e, b=bar, l=overlay_lbl: center_overlay_label(b, l))
+# ==== Build Metrics ====
+widgets = build_metrics(root, style)
 
 # ==== Background network update ====
 def update_network_stats():
@@ -183,6 +112,7 @@ def update_stats():
             lbl.config(text=f"RAM Utilized: {val:.1f}%")
             if overlay_lbl:
                 overlay_lbl.config(
+                    #text=f"used {ram_info['used']} GB / free {ram_info['available']} GB", background=lbl_color
                     text=f"used {ram_info['used']} GB / free {ram_info['available']} GB",
                     background=lbl_color
                 )

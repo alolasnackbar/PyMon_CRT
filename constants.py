@@ -10,5 +10,7 @@ CRT_YELLOW = "#FFFF00"
 CRT_RED = "#FF4444"
 CRT_GRID  = "#024D02"
 
-FONT_TITLE = ("Consolas", 11, "bold")
+FONT_TITLE = ("Consolas", 14, "bold")
+FONT_SYSTIME = ("Consolas", 15, "bold")
+FONT_INFOTXT = ("Consolas", 11, "bold")
 FONT_TAB_TITLE_COLOR = "success"

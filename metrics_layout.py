@@ -1,0 +1,97 @@
+# metrics_layout.py
+import ttkbootstrap as tb
+from ttkbootstrap.constants import *
+from constants import *
+from widgets import build_metric_frame, center_overlay_label
+
+# ==== Build metrics ====
+def build_metrics(root, style):
+    widgets = {}
+
+    metric_list = [
+        {"name": "CPU", "maxval": 100, "row": 0, "col": 0},
+        {"name": "GPU", "maxval": 100, "row": 1, "col": 0},
+        {"name": "RAM", "maxval": 100, "row": 2, "col": 0},
+        {"name": "Disk I/O", "maxval": DISK_IO_MAX_MBPS, "row": 0, "col": 1, "io": True},
+        {"name": "Sys Info & Time", "row": 1, "col": 1, "rowspan": 2, "sysinfo": True}
+    ]
+
+    for metric in metric_list:
+        name = metric["name"]
+        row, col = metric["row"], metric["col"]
+        colspan = metric.get("colspan", 1)
+        rowspan = metric.get("rowspan", 1)
+
+        if metric.get("io", False):
+            f = tb.Labelframe(root, text=name, bootstyle=FONT_TAB_TITLE_COLOR)
+            f.grid(row=row, column=col, columnspan=colspan, sticky="nsew", padx=4, pady=4)
+            root.rowconfigure(row, weight=1)
+            root.columnconfigure(col, weight=1)
+
+            io_read_lbl = tb.Label(f, text="READ: ...", anchor="w", font=FONT_TITLE, foreground=CRT_GREEN)
+            io_read_lbl.pack(fill=X, padx=4, pady=(2,0))
+            io_read_bar_style = f"IORead.Horizontal.TProgressbar"
+            style.configure(io_read_bar_style, troughcolor="black", background=CRT_GREEN, thickness=PROGRESS_THICKNESS)
+            io_read_bar = tb.Progressbar(f, bootstyle="success", maximum=DISK_IO_MAX_MBPS, style=io_read_bar_style)
+            io_read_bar._style_name = io_read_bar_style
+            io_read_bar.pack(fill=X, padx=4, pady=(0,2))
+
+            io_write_lbl = tb.Label(f, text="WRITE: ...", anchor="w", font=FONT_TITLE, foreground="white")
+            io_write_lbl.pack(fill=X, padx=4, pady=(2,0))
+            io_write_bar_style = f"IOWrite.Horizontal.TProgressbar"
+            style.configure(io_write_bar_style, troughcolor="black", background="white", thickness=PROGRESS_THICKNESS)
+            io_write_bar = tb.Progressbar(f, bootstyle="success", maximum=DISK_IO_MAX_MBPS, style=io_write_bar_style)
+            io_write_bar._style_name = io_write_bar_style
+            io_write_bar.pack(fill=X, padx=4, pady=(0,2))
+
+            io_canvas = tb.Canvas(f, height=GRAPH_HEIGHT, background="black", highlightthickness=0)
+            io_canvas.pack(fill=BOTH, expand=True, padx=4, pady=4)
+            widgets[name] = (io_read_lbl, io_write_lbl, io_read_bar, io_write_bar, io_canvas)
+
+        elif metric.get("sysinfo", False):
+            nb = tb.Notebook(root, bootstyle="dark")
+            nb.grid(row=row, column=col, columnspan=colspan, rowspan=rowspan, sticky="nsew", padx=4, pady=4)
+
+            # --- Tab 1: System Info ---
+            f_sys = tb.Frame(nb)
+            nb.add(f_sys, text="System Info")
+
+            info_labels = {}
+            for key in ["CPU Model", "Cores", "GPU"]:
+                lbl = tb.Label(f_sys, text=f"{key}: ...", anchor="w", font=FONT_INFOTXT, foreground=CRT_GREEN)
+                lbl.pack(fill=X, padx=4, pady=1)
+                info_labels[key] = lbl
+
+            net_in_lbl = tb.Label(f_sys, text="Net IN: ... MB/s", anchor="w", font=FONT_INFOTXT, foreground=CRT_GREEN)
+            net_in_lbl.pack(fill=X, padx=4, pady=1)
+            net_out_lbl = tb.Label(f_sys, text="Net OUT: ... MB/s", anchor="w", font=FONT_INFOTXT, foreground=CRT_GREEN)
+            net_out_lbl.pack(fill=X, padx=4, pady=1)
+            latency_lbl = tb.Label(f_sys, text="Latency: ... ms", anchor="w", font=FONT_INFOTXT, foreground=CRT_GREEN)
+            latency_lbl.pack(fill=X, padx=4, pady=1)
+
+            info_labels["Net IN"] = net_in_lbl
+            info_labels["Net OUT"] = net_out_lbl
+            info_labels["Latency"] = latency_lbl
+
+            # --- Tab 2: Time & Uptime ---
+            f_time = tb.Frame(nb)
+            nb.add(f_time, text="Time & Uptime")
+
+            time_lbl = tb.Label(f_time, text="Time: ...", anchor="w", font=FONT_SYSTIME, foreground=CRT_GREEN)
+            time_lbl.pack(fill=X, pady=(10,2))
+            uptime_lbl = tb.Label(f_time, text="Uptime: ...", anchor="w", font=FONT_SYSTIME, foreground=CRT_GREEN)
+            uptime_lbl.pack(fill=X, pady=(2,10))
+
+            # Store in widgets
+            widgets[name] = (time_lbl, uptime_lbl, info_labels)
+
+        else:
+            f, lbl, bar, cvs, overlay_lbl = build_metric_frame(root, name, style=style)
+            f.grid(row=row, column=col, sticky="nsew", padx=4, pady=4)
+            root.rowconfigure(row, weight=1)
+            root.columnconfigure(col, weight=1)
+            widgets[name] = (lbl, bar, cvs, metric["maxval"], overlay_lbl)
+            if name == "RAM" and overlay_lbl:
+                bar.bind("<Configure>", lambda e, b=bar, l=overlay_lbl: center_overlay_label(b, l))
+
+    return widgets
