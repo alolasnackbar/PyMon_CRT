@@ -6,6 +6,7 @@ import threading
 from constants import *
 from crt_graphics import draw_crt_grid, draw_crt_line, draw_dual_io, draw_metric
 from metrics_layout import build_metrics   # <-- NEW import
+from startup_loader import startup_loader
 
 # ==== Global settings ====
 history = {"CPU": [], "RAM": [], "GPU": [], "DISK_read": [], "DISK_write": []}
@@ -140,14 +141,20 @@ def update_stats():
     )
 
     # === Dedicated Time & Uptime widget ===
-    time_lbl, uptime_lbl = widgets["Time & Uptime"]
-    time_lbl.config(text=f"Time: {core.get_local_time()}")
-    uptime_lbl.config(text=f"Uptime: {core.get_uptime()}")
+    date_lbl, time_lbl, uptime_lbl = widgets["Time & Uptime"]
+    time_lbl.config(text=f"{core.get_local_time()}")
+    uptime_lbl.config(text=f"Sys Uptime: {core.get_uptime()}")
+    date_lbl.config(text=f"Date: {core.get_local_date()}")
 
     # schedule next update
     root.after(REFRESH_MS, update_stats)
 
 # ==== Start everything ====
-schedule_network_update()
-update_stats()
+def start_app():
+    schedule_network_update()
+    update_stats()
+
+# Run CRT loader first, then stats
+startup_loader(root, widgets, style, on_complete=start_app)
+
 root.mainloop()

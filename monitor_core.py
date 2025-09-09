@@ -167,8 +167,13 @@ def get_gpu_info():
     return out if out else None
 
 # ---- Time & Uptime ----
+def get_local_date():
+    """Return the current local date as a formatted string."""
+    return datetime.now().strftime("%a, %b %d, %Y")
+
 def get_local_time():
-    return datetime.now().strftime("%a, %b %d, %Y | %H:%M:%S")
+    """Return the current local time as a formatted string."""
+    return datetime.now().strftime("%H:%M:%S")
 
 def get_uptime():
     try:

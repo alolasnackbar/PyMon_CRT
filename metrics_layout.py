@@ -51,16 +51,15 @@ def build_metrics(root, style):
             widgets[name] = (io_read_lbl, io_write_lbl, io_read_bar, io_write_bar, io_canvas)
     
         elif metric.get("sysinfo", False):
-            # Outer Labelframe for system info
-            f_sys_outer = tb.Labelframe(root, text="System Info & Stats", bootstyle=FONT_TAB_TITLE_COLOR)
-            f_sys_outer.grid(row=row, column=col, columnspan=colspan, rowspan=rowspan,
-                            sticky="nsew", padx=4, pady=4)
+            # Notebook widget
+            f = tb.Labelframe(root, text=name, bootstyle=FONT_TAB_TITLE_COLOR)
+            f.grid(row=row, column=col, columnspan=colspan, rowspan=rowspan,
+                    sticky="nsew", padx=4, pady=4)
 
-            # Notebook inside the Labelframe
-            nb = tb.Notebook(f_sys_outer, bootstyle="dark", style=CRT_GREEN)
+            nb = tb.Notebook(f, bootstyle="dark")
             nb.pack(fill=BOTH, expand=True, padx=4, pady=4)
 
-            # --- Tab 1: System Info ---
+            # --- Tab 1: System Info (basic hardware details) ---
             f_sys = tb.Frame(nb)
             nb.add(f_sys, text="System Info")
 
@@ -71,28 +70,42 @@ def build_metrics(root, style):
                 lbl.pack(fill=X, padx=4, pady=1)
                 info_labels[key] = lbl
 
-            # Network stats inside System Info tab
-            net_in_lbl = tb.Label(f_sys, text="Net IN: ... MB/s", anchor="w",
+            # --- Tab 2: CPU Stats ---
+            f_cpu = tb.Frame(nb)
+            nb.add(f_cpu, text="CPU Stats")
+            cpu_lbl = tb.Label(f_cpu, text="CPU Usage: ...", anchor="w",
+                            font=FONT_INFOTXT, foreground=CRT_GREEN)
+            cpu_lbl.pack(fill=X, padx=4, pady=2)
+
+            # --- Tab 3: GPU Stats ---
+            f_gpu = tb.Frame(nb)
+            nb.add(f_gpu, text="GPU Stats")
+            gpu_lbl = tb.Label(f_gpu, text="GPU Usage: ...", anchor="w",
+                            font=FONT_INFOTXT, foreground=CRT_GREEN)
+            gpu_lbl.pack(fill=X, padx=4, pady=2)
+
+            # --- Tab 4: Network Stats ---
+            f_net = tb.Frame(nb)
+            nb.add(f_net, text="Network Stats")
+            net_in_lbl = tb.Label(f_net, text="Net IN: ... MB/s", anchor="w",
                                 font=FONT_INFOTXT, foreground=CRT_GREEN)
             net_in_lbl.pack(fill=X, padx=4, pady=1)
-            net_out_lbl = tb.Label(f_sys, text="Net OUT: ... MB/s", anchor="w",
+            net_out_lbl = tb.Label(f_net, text="Net OUT: ... MB/s", anchor="w",
                                 font=FONT_INFOTXT, foreground=CRT_GREEN)
             net_out_lbl.pack(fill=X, padx=4, pady=1)
-            latency_lbl = tb.Label(f_sys, text="Latency: ... ms", anchor="w",
+            latency_lbl = tb.Label(f_net, text="Latency: ... ms", anchor="w",
                                 font=FONT_INFOTXT, foreground=CRT_GREEN)
             latency_lbl.pack(fill=X, padx=4, pady=1)
 
+            # Store widget references
+            info_labels["CPU Usage"] = cpu_lbl
+            info_labels["GPU Usage"] = gpu_lbl
             info_labels["Net IN"] = net_in_lbl
             info_labels["Net OUT"] = net_out_lbl
             info_labels["Latency"] = latency_lbl
 
-            # --- Other Tabs ---
-            f_cpu = tb.Frame(nb); nb.add(f_cpu, text="CPU Stats")
-            f_gpu = tb.Frame(nb); nb.add(f_gpu, text="GPU Stats")
-            f_net = tb.Frame(nb); nb.add(f_net, text="Network Stats")
-
-            # Store only the system info labels in widgets dict
             widgets[name] = info_labels
+
 
 
         elif metric.get("timewidget", False):
@@ -101,15 +114,18 @@ def build_metrics(root, style):
             f.grid(row=row, column=col, columnspan=colspan, rowspan=rowspan,
                 sticky="nsew", padx=4, pady=4)
 
-            time_lbl = tb.Label(f, text="Time: ...", anchor="w",
-                                font=FONT_SYSTIME, foreground=CRT_GREEN)
-            time_lbl.pack(fill=X, pady=(6, 2), padx=6)
+            time_lbl = tb.Label(f, text="Time: ...", anchor="w", font=FONT_SYSTIME, foreground=CRT_GREEN)
+            time_lbl.pack(fill=X, pady=(1,1))
 
-            uptime_lbl = tb.Label(f, text="Uptime: ...", anchor="w",
-                                font=FONT_SYSTIME, foreground=CRT_GREEN)
-            uptime_lbl.pack(fill=X, pady=(2, 6), padx=6)
+            uptime_lbl = tb.Label(f, text="Uptime: ...", anchor="w", font=("Consolas", 15, "bold"), foreground=CRT_GREEN)
+            uptime_lbl.pack(fill=X, pady=(2,4))
 
-            widgets[name] = (time_lbl, uptime_lbl)
+            date_lbl = tb.Label(f, text="Date: ...", anchor="w", font=("Consolas", 15, "bold"), foreground=CRT_GREEN)
+            date_lbl.pack(fill=X, pady=(4,2))
+
+            # Store them
+            widgets["Time & Uptime"] = (date_lbl, time_lbl, uptime_lbl)
+
 
         else:
             f, lbl, bar, cvs, overlay_lbl = build_metric_frame(root, name, style=style)
