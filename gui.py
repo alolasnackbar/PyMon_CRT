@@ -19,7 +19,7 @@ PING_COUNT = 3
 # ==== Main GUI setup ====
 root = tb.Window(themename="darkly")
 root.title("AlohaSnackBar Hardware Monitor")
-root.geometry("960x640")
+root.geometry("960x600")
 
 # Configure root grid weights
 for i in range(3):  # rows
@@ -139,13 +139,12 @@ def update_stats():
     info_labels["Latency"].config(
         text=f"Latency: {lat:.1f} ms" if lat is not None else "Latency: N/A"
     )
+    info_labels["Uptime"].config(text=f"Uptime: {core.get_uptime()}")
 
     # === Dedicated Time & Uptime widget ===
-    date_lbl, time_lbl, uptime_lbl = widgets["Time & Uptime"]
+    date_lbl, time_lbl = widgets["Time & Uptime"]
     time_lbl.config(text=f"{core.get_local_time()}")
-    uptime_lbl.config(text=f"Sys Uptime: {core.get_uptime()}")
     date_lbl.config(text=f"Date: {core.get_local_date()}")
-
     # schedule next update
     root.after(REFRESH_MS, update_stats)
 

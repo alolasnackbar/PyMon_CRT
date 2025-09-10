@@ -173,7 +173,7 @@ def get_local_date():
 
 def get_local_time():
     """Return the current local time as a formatted string."""
-    return datetime.now().strftime("%H:%M:%S")
+    return datetime.now().strftime("%H:%M:%S %p")
 
 def get_uptime():
     try:

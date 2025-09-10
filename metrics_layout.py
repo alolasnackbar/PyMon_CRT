@@ -64,7 +64,7 @@ def build_metrics(root, style):
             nb.add(f_sys, text="System Info")
 
             info_labels = {}
-            for key in ["CPU Model", "Cores", "GPU"]:
+            for key in ["CPU Model", "Cores", "GPU", "Uptime"]:
                 lbl = tb.Label(f_sys, text=f"{key}: ...", anchor="w",
                             font=FONT_INFOTXT, foreground=CRT_GREEN)
                 lbl.pack(fill=X, padx=4, pady=1)
@@ -117,14 +117,13 @@ def build_metrics(root, style):
             time_lbl = tb.Label(f, text="Time: ...", anchor="w", font=FONT_SYSTIME, foreground=CRT_GREEN)
             time_lbl.pack(fill=X, pady=(1,1))
 
-            uptime_lbl = tb.Label(f, text="Uptime: ...", anchor="w", font=("Consolas", 15, "bold"), foreground=CRT_GREEN)
-            uptime_lbl.pack(fill=X, pady=(2,4))
-
             date_lbl = tb.Label(f, text="Date: ...", anchor="w", font=("Consolas", 15, "bold"), foreground=CRT_GREEN)
-            date_lbl.pack(fill=X, pady=(4,2))
+            date_lbl.pack(fill=X, pady=(2,1))
 
+            # uptime_lbl = tb.Label(f, text="Uptime: ...", anchor="w", font=("Consolas", 12, "bold"), foreground=CRT_GREEN)
+            # uptime_lbl.pack(fill=X, pady=(2,1))
             # Store them
-            widgets["Time & Uptime"] = (date_lbl, time_lbl, uptime_lbl)
+            widgets["Time & Uptime"] = (date_lbl, time_lbl)
 
 
         else:
