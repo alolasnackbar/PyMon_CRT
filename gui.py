@@ -82,19 +82,27 @@ def update_stats():
         lbl_color = get_usage_color(val) if val == max_metric else CRT_GREEN
 
         if key == "CPU":
-            if core_freq:
-                freq_ghz = core_freq / 1000
+            freq_tuple = core.get_cpu_freq()
+            if freq_tuple:
+                current, min_freq, max_freq = freq_tuple
+
+                # Build the frequency text safely
+                freq_text = f"{current:.2f} GHz"
+                if min_freq is not None and max_freq is not None and min_freq > 0 and max_freq > 0:
+                    freq_text += f" (min {min_freq:.2f} / max {max_freq:.2f})"
+
                 lbl.config(
                     foreground=lbl_color,
-                    text=f"CPU Usage: {val:.1f}%  CPU Speed: {freq_ghz:.1f} GHz"
+                    text=f"CPU Usage: {val:.1f}%  CPU Speed: {freq_text}"
                 )
             else:
                 lbl.config(
                     foreground=lbl_color,
-                    text=f"CPU Usage: {val:.1f}%  CPU Hz: N/A"
+                    text=f"CPU Usage: {val:.1f}%  CPU Speed: N/A"
                 )
         else:
             lbl.config(foreground=lbl_color, text=f"{key} Usage: {val:.1f}%")
+
 
         style.configure(bar._style_name, background=lbl_color)
         bar["value"] = val
@@ -128,11 +136,14 @@ def update_stats():
     info_labels = widgets["Sys Info"]
     cpu_info = core.get_cpu_info()
     gpu_info = core.get_gpu_info()
+    disk_use = core.get_disk_summary()
+    
     info_labels["CPU Model"].config(text=f"CPU Model: {cpu_info['model']}")
     info_labels["Cores"].config(
-        text=f"{cpu_info['physical_cores']} CORES | {cpu_info['logical_cores']} THREADS | {core_freq/1000:.1f} GHz"
+        text=f"{cpu_info['physical_cores']} CORES | {cpu_info['logical_cores']} THREADS | {freq_text}"
     )
     info_labels["GPU"].config(text=f"GPU: {gpu_info}")
+    info_labels["DISK"].config(text=f"DISK USAGE: {disk_use}")
     info_labels["Net IN"].config(text=f"Net IN: {network_results['in_MB']:.2f} MB/s")
     info_labels["Net OUT"].config(text=f"Net OUT: {network_results['out_MB']:.2f} MB/s")
     lat = network_results['latency_ms']

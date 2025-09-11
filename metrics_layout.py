@@ -64,7 +64,7 @@ def build_metrics(root, style):
             nb.add(f_sys, text="System Info")
 
             info_labels = {}
-            for key in ["CPU Model", "Cores", "GPU", "Uptime"]:
+            for key in ["CPU Model", "Cores", "Uptime", "GPU", "DISK"]:
                 lbl = tb.Label(f_sys, text=f"{key}: ...", anchor="w",
                             font=FONT_INFOTXT, foreground=CRT_GREEN)
                 lbl.pack(fill=X, padx=4, pady=1)
@@ -76,6 +76,7 @@ def build_metrics(root, style):
             cpu_lbl = tb.Label(f_cpu, text="CPU Usage: ...", anchor="w",
                             font=FONT_INFOTXT, foreground=CRT_GREEN)
             cpu_lbl.pack(fill=X, padx=4, pady=2)
+            
 
             # --- Tab 3: GPU Stats ---
             f_gpu = tb.Frame(nb)

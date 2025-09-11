@@ -39,19 +39,42 @@ def get_cpu_usage(interval=None):
     except Exception:
         return 0.0
 
-def get_cpu_freq():
+# Cache values + limiter
+_last_freq_check = 1.0
+_last_freq = None
+_freq_min = None
+_freq_max = None
+
+def get_cpu_freq(rate_limit_sec: float = 1.0):
     """
-    Returns current average CPU frequency in GHz (float) or None.
+    Returns a tuple (current_GHz, min_GHz, max_GHz).
+    - `current_GHz`: updated at most once per `rate_limit_sec` to reduce WMI overhead.
+    - `min_GHz`, `max_GHz`: cached once at startup (since they rarely change).
+    Returns None if unavailable.
     """
+    global _last_freq_check, _last_freq, _freq_min, _freq_max
+
     try:
-        f = psutil.cpu_freq(percpu=True)
-        if not f:
+        now = time.time()
+
+        # Initialize min/max once
+        if _freq_min is None or _freq_max is None:
             f = psutil.cpu_freq(percpu=False)
-            if not f:
-                return None
-            return round(f.current / 1000.0, 2)
-        avg_mhz = sum(core.current for core in f) / len(f)
-        return round(avg_mhz / 1000.0, 2)
+            if f:
+                _freq_min = round(f.min / 1000.0, 2) if f.min else None
+                _freq_max = round(f.max / 1000.0, 2) if f.max else None
+
+        # Rate-limit the "current" lookup
+        if now - _last_freq_check >= rate_limit_sec or _last_freq is None:
+            f = psutil.cpu_freq(percpu=False)
+            if f:
+                _last_freq = round(f.current / 1000.0, 2)  # GHz
+            else:
+                _last_freq = None
+            _last_freq_check = now
+
+        return (_last_freq, _freq_min, _freq_max)
+
     except Exception:
         return None
 
@@ -140,6 +163,35 @@ def get_disk_io(interval=None):
         return read_mb_s, write_mb_s
     except Exception:
         return 0.0, 0.0
+# --- DISK space usage ---
+def get_disk_summary(max_drives=3):
+    """
+    Returns a formatted string of disk usage for up to `max_drives` drives.
+    
+    Example output: "C: 120/500 GB | D: 300/1.1 GB"
+    """
+    summary = []
+    try:
+        partitions = psutil.disk_partitions()
+        count = 0
+        for part in partitions:
+            if count >= max_drives:
+                break
+            try:
+                usage = psutil.disk_usage(part.mountpoint)
+                used_gb = round(usage.used / (1024 ** 3), 1)
+                total_gb = round(usage.total / (1024 ** 3), 1)
+                # Remove any trailing '\' or ':' from the drive letter
+                drive_letter = part.device.strip(':\\')
+                summary.append(f"{drive_letter}: {used_gb}/{total_gb} GB")
+                count += 1
+            except PermissionError:
+                continue
+    except Exception as e:
+        print("Error retrieving disk summary:", e)
+        return ""
+    
+    return " | ".join(summary)
 
 # ---- GPU ----
 def _nvidia_smi_available():
