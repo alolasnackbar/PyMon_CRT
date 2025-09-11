@@ -2,11 +2,14 @@ import ttkbootstrap as tb
 from ttkbootstrap.constants import *
 import monitor_core as core
 import threading
+import pygetwindow as gw
+import ctypes
 
 from constants import *
 from crt_graphics import draw_crt_grid, draw_crt_line, draw_dual_io, draw_metric
 from metrics_layout import build_metrics   # <-- NEW import
 from startup_loader import startup_loader
+from screeninfo import get_monitors
 
 # ==== Global settings ====
 history = {"CPU": [], "RAM": [], "GPU": [], "DISK_read": [], "DISK_write": []}
@@ -40,12 +43,11 @@ def get_usage_color(value):
 
 # ==== Background network update ====
 def update_network_stats():
-    """Run network usage & ping in a separate thread."""
     global network_results
     try:
         net_in, net_out, avg_latency = core.net_usage_latency(
-            interface=NETWORK_INTERFACE, 
-            ping_host_addr=PING_HOST,  # matches core function
+            interface=NETWORK_INTERFACE,
+            ping_host_addr=PING_HOST,
             ping_count=PING_COUNT
         )
         network_results["in_MB"] = net_in
@@ -56,7 +58,64 @@ def update_network_stats():
 
 def schedule_network_update():
     threading.Thread(target=update_network_stats, daemon=True).start()
-    root.after(1000, schedule_network_update)  # every 1 second
+    root.after(1000, schedule_network_update)
+
+# ==== Fullscreen Utilities (Windows dynamic, multi-monitor) ====
+fullscreen = False
+prev_geometry = None  # store previous window size/position
+
+def get_current_monitor_geometry():
+    """Return width, height, x, y of the monitor containing the center of the window."""
+    x = root.winfo_x() + root.winfo_width() // 2
+    y = root.winfo_y() + root.winfo_height() // 2
+    for m in get_monitors():
+        if m.x <= x < m.x + m.width and m.y <= y < m.y + m.height:
+            return m.width, m.height, m.x, m.y
+    # fallback to primary monitor
+    primary = [m for m in get_monitors() if m.is_primary][0]
+    return primary.width, primary.height, primary.x, primary.y
+
+def enter_fullscreen():
+    global fullscreen, prev_geometry
+    if fullscreen:
+        return
+    fullscreen = True
+    # save current geometry
+    prev_geometry = root.geometry()
+    # get current monitor
+    w, h, x, y = get_current_monitor_geometry()
+    root.overrideredirect(True)  # remove window decorations
+    root.geometry(f"{w}x{h}+{x}+{y}")
+
+def exit_fullscreen(event=None):  # accept event
+    global fullscreen
+    if not fullscreen:
+        return
+    fullscreen = False
+    root.overrideredirect(False)  # restore window decorations
+    if prev_geometry:
+        root.geometry(prev_geometry)
+
+def toggle_fullscreen(event=None):
+    if fullscreen:
+        exit_fullscreen()
+    else:
+        enter_fullscreen()
+
+def monitor_tracker():
+    """If window is moved while fullscreen, resize to new monitor dynamically."""
+    if fullscreen:
+        w, h, x, y = get_current_monitor_geometry()
+        root.geometry(f"{w}x{h}+{x}+{y}")
+    else:
+        root.geometry("960x600")
+    root.after(500, monitor_tracker)
+
+# ==== Bindings ====
+root.bind("<F11>", toggle_fullscreen)
+root.bind("<Escape>", exit_fullscreen)
+monitor_tracker()
+
 
 # ==== Update function ====
 def update_stats():
@@ -85,12 +144,9 @@ def update_stats():
             freq_tuple = core.get_cpu_freq()
             if freq_tuple:
                 current, min_freq, max_freq = freq_tuple
-
-                # Build the frequency text safely
                 freq_text = f"{current:.2f} GHz"
                 if min_freq is not None and max_freq is not None and min_freq > 0 and max_freq > 0:
                     freq_text += f" (min {min_freq:.2f} / max {max_freq:.2f})"
-
                 lbl.config(
                     foreground=lbl_color,
                     text=f"CPU Usage: {val:.1f}%  CPU Speed: {freq_text}"
@@ -102,7 +158,6 @@ def update_stats():
                 )
         else:
             lbl.config(foreground=lbl_color, text=f"{key} Usage: {val:.1f}%")
-
 
         style.configure(bar._style_name, background=lbl_color)
         bar["value"] = val
@@ -137,7 +192,7 @@ def update_stats():
     cpu_info = core.get_cpu_info()
     gpu_info = core.get_gpu_info()
     disk_use = core.get_disk_summary()
-    
+
     info_labels["CPU Model"].config(text=f"CPU Model: {cpu_info['model']}")
     info_labels["Cores"].config(
         text=f"{cpu_info['physical_cores']} CORES | {cpu_info['logical_cores']} THREADS | {freq_text}"
@@ -154,9 +209,9 @@ def update_stats():
 
     # === Dedicated Time & Uptime widget ===
     date_lbl, time_lbl = widgets["Time & Uptime"]
-    time_lbl.config(text=f"{core.get_local_time()}")
-    date_lbl.config(text=f"Date: {core.get_local_date()}")
-    # schedule next update
+    time_lbl.config(text=f"{core.get_local_time()}")  # Include AM/PM if formatted in core
+    date_lbl.config(text=f"Date: {core.get_local_date()}")  # Include weekday if formatted in core
+
     root.after(REFRESH_MS, update_stats)
 
 # ==== Start everything ====
@@ -164,7 +219,6 @@ def start_app():
     schedule_network_update()
     update_stats()
 
-# Run CRT loader first, then stats
 startup_loader(root, widgets, style, on_complete=start_app)
 
 root.mainloop()
