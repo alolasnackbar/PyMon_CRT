@@ -1,0 +1,4 @@
+#log removals and random junk
+*.log
+__pycache__/
+__pycache__/*.pyc
