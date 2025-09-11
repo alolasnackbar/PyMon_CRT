@@ -146,7 +146,7 @@ def update_stats():
                 current, min_freq, max_freq = freq_tuple
                 freq_text = f"{current:.2f} GHz"
                 if min_freq is not None and max_freq is not None and min_freq > 0 and max_freq > 0:
-                    freq_text += f" (min {min_freq:.2f} / max {max_freq:.2f})"
+                    freq_text += f" (min {min_freq:.1f} / max {max_freq:.2f})"
                 lbl.config(
                     foreground=lbl_color,
                     text=f"CPU Usage: {val:.1f}%  CPU Speed: {freq_text}"
@@ -165,10 +165,10 @@ def update_stats():
 
         if key == "RAM":
             ram_info = core.get_ram_info()
-            lbl.config(text=f"RAM Utilized: {val:.1f}%")
+            lbl.config(text=f"RAM used {ram_info['used']} GB / free {ram_info['available']} GB")
             if overlay_lbl:
                 overlay_lbl.config(
-                    text=f"used {ram_info['used']} GB / free {ram_info['available']} GB",
+                    text=f"{val:.1f}%",
                     background=lbl_color
                 )
 

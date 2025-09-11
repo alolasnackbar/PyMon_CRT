@@ -25,4 +25,4 @@ def build_metric_frame(parent, title, maxval=100, graph_height=GRAPH_HEIGHT, sty
 
 def center_overlay_label(bar, overlay_lbl):
     if overlay_lbl:
-        overlay_lbl.place_configure(in_=bar, relx=0.5, rely=0.5, anchor="center")
+        overlay_lbl.place_configure(in_=bar, relx=0.06, rely=0.5, anchor="center")
