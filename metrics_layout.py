@@ -70,13 +70,37 @@ def build_metrics(root, style):
                 lbl.pack(fill=X, padx=4, pady=1)
                 info_labels[key] = lbl
 
-            # --- Tab 2: CPU Stats ---
+            # --- Tab 2: CPU Stats (load, uptime, top processes) ---
             f_cpu = tb.Frame(nb)
             nb.add(f_cpu, text="CPU Stats")
-            cpu_lbl = tb.Label(f_cpu, text="CPU Usage: ...", anchor="w",
-                            font=FONT_INFOTXT, foreground=CRT_GREEN)
-            cpu_lbl.pack(fill=X, padx=4, pady=2)
-            
+
+            cpu_labels = {}
+            # Load average
+            cpu_labels["Load"] = tb.Label(
+                f_cpu, text="Load average: ...", anchor="w",
+                font=FONT_INFOTXT, foreground=CRT_GREEN
+            )
+            cpu_labels["Load"].pack(fill=X, padx=4, pady=2)
+
+            # Uptime
+            cpu_labels["Uptime"] = tb.Label(
+                f_cpu, text="Uptime: ...", anchor="w",
+                font=FONT_INFOTXT, foreground=CRT_GREEN
+            )
+            cpu_labels["Uptime"].pack(fill=X, padx=4, pady=2)
+
+            # Top processes
+            cpu_labels["Top Processes"] = tb.Label(
+                f_cpu,
+                text="PID    USER     NI   VIRT    RES   CPU%  MEM%  NAME",
+                anchor="w",
+                font=("Consolas", 9),
+                foreground=CRT_GREEN,
+                justify="left"
+            )
+            cpu_labels["Top Processes"].pack(fill=X, padx=4, pady=4)
+
+            widgets["CPU Stats"] = cpu_labels
 
             # --- Tab 3: GPU Stats ---
             f_gpu = tb.Frame(nb)
@@ -99,7 +123,8 @@ def build_metrics(root, style):
             latency_lbl.pack(fill=X, padx=4, pady=1)
 
             # Store widget references
-            info_labels["CPU Usage"] = cpu_lbl
+            widgets["Sys Info"] = info_labels
+            widgets["CPU Stats"] = cpu_labels   
             info_labels["GPU Usage"] = gpu_lbl
             info_labels["Net IN"] = net_in_lbl
             info_labels["Net OUT"] = net_out_lbl

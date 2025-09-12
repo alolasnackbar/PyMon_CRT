@@ -116,7 +116,6 @@ root.bind("<F11>", toggle_fullscreen)
 root.bind("<Escape>", exit_fullscreen)
 monitor_tracker()
 
-
 # ==== Update function ====
 def update_stats():
     global frame_count
@@ -206,6 +205,16 @@ def update_stats():
         text=f"Latency: {lat:.1f} ms" if lat is not None else "Latency: N/A"
     )
     info_labels["Uptime"].config(text=f"Uptime: {core.get_uptime()}")
+
+    # === CPU Stats Tab ===
+    cpu_labels = widgets["CPU Stats"]
+    cpu_labels["Load"].config(text=core.get_load_average())
+    cpu_labels["Uptime"].config(text=f"Uptime: {core.get_uptime()}")
+
+    procs = core.get_top_processes(limit=3)  # 3 processes only
+    header = "PID    USER       VIRT    RES   CPU%  MEM%  NAME"
+    top_text = header + "\n" + "\n".join(procs)
+    cpu_labels["Top Processes"].config(text=top_text)
 
     # === Dedicated Time & Uptime widget ===
     date_lbl, time_lbl = widgets["Time & Uptime"]
