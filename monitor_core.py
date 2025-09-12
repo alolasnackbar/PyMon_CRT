@@ -5,6 +5,7 @@ import platform
 import time
 import shutil
 import re
+import os
 from datetime import datetime
 
 # ---- Optional Windows WMI (for CPU model) ----
@@ -118,6 +119,49 @@ def get_cpu_info():
         "physical_cores": psutil.cpu_count(logical=False) or 0,
         "logical_cores": psutil.cpu_count(logical=True) or 0,
     }
+
+# ---- CPU htop Process Table ----
+def get_load_average():
+    """Return load average in Linux style, Windows shows CPU percent fallback."""
+    try:
+        load1, load5, load15 = os.getloadavg()
+        return f"Load average: {load1:.2f} {load5:.2f} {load15:.2f}"
+    except (AttributeError, OSError):
+        # Windows fallback: show CPU usage %
+        cpu = psutil.cpu_percent(interval=1)
+        return f"CPU Usage: {cpu:.1f}%"
+    
+def get_top_processes(limit=3):
+    """Return top processes sorted by CPU usage (safe across platforms)."""
+    processes = []
+    for p in psutil.process_iter(['pid', 'username', 'nice', 'memory_info', 'cpu_percent', 'name']):
+        try:
+            info = p.info
+            virt = (info.get('memory_info').vms if info.get('memory_info') else 0) / (1024 * 1024)
+            res = (info.get('memory_info').rss if info.get('memory_info') else 0) / (1024 * 1024)
+            processes.append((
+                info.get('pid', 0),
+                (info.get('username') or "unknown")[:8],
+                info.get('nice', 0),  # fallback to 0 if missing
+                virt,
+                res,
+                info.get('cpu_percent', 0.0),
+                p.memory_percent() if p else 0.0,
+                info.get('name', "unknown")
+            ))
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            continue
+
+    # Sort by CPU%
+    processes.sort(key=lambda x: x[5], reverse=True)
+
+    top = []
+    for proc in processes[:limit]:
+        pid, user, nice, virt, res, cpu, mem, name = proc
+        top.append(
+            f"{pid:<6} {user:<8} {virt:>6.1f}M {res:>6.1f}M {cpu:>5.1f} {mem:>5.1f}  {name}"
+        )
+    return top
 
 # ---- RAM ----
 def get_ram_usage():
