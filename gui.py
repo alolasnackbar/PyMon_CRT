@@ -229,12 +229,13 @@ def update_stats():
 
     root.after(REFRESH_MS, update_stats)
 
+# # ==== Start everything loader startup ====
+# def start_app():
+#     schedule_network_update()
+#     update_stats()
 
-# ==== Start everything ====
-def start_app():
-    schedule_network_update()
-    update_stats()
+# startup_loader(root, widgets, style, on_complete=start_app)
 
-startup_loader(root, widgets, style, on_complete=start_app)
-
+schedule_network_update()
+update_stats()
 root.mainloop()

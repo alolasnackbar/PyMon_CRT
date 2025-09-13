@@ -298,6 +298,7 @@ def get_primary_interface():
                 candidates.append(iface)
         return candidates[0] if candidates else None
     except Exception:
+        print(stats)
         return None
 
 # --- Ping (with timeouts and robust parsing) ---
