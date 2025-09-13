@@ -81,6 +81,7 @@ def get_cpu_freq(rate_limit_sec: float = 1.0):
 
 # ---- CPU Info (cached) ----
 _cpu_model_cache = None
+
 def get_cpu_info():
     global _cpu_model_cache
     if _cpu_model_cache is None:
@@ -125,11 +126,11 @@ def get_load_average():
     """Return load average in Linux style, Windows shows CPU percent fallback."""
     try:
         load1, load5, load15 = os.getloadavg()
-        return f"Load average: {load1:.2f} {load5:.2f} {load15:.2f}"
+        return f"{load1:.2f} {load5:.2f} {load15:.2f}"#load average view here
     except (AttributeError, OSError):
         # Windows fallback: show CPU usage %
         cpu = psutil.cpu_percent(interval=1)
-        return f"CPU Usage: {cpu:.1f}%"
+        return f"{cpu:.1f}"#load cpu usage here
     
 def get_top_processes(limit=3):
     """Return top processes sorted by CPU usage (safe across platforms)."""
@@ -142,7 +143,7 @@ def get_top_processes(limit=3):
             processes.append((
                 info.get('pid', 0),
                 (info.get('username') or "unknown")[:8],
-                info.get('nice', 0),  # fallback to 0 if missing
+                info.get('nice', 0),  # fallback to 0 if missing nice is what?
                 virt,
                 res,
                 info.get('cpu_percent', 0.0),
@@ -375,28 +376,6 @@ def net_usage_latency(interface=None, ping_host_addr="8.8.8.8", ping_count=3, in
         return net_in_MB, net_out_MB, avg_latency
     except Exception:
         return 0.0, 0.0, None
-
-# ---- Top CPU Process (expensive; keep optional) ----
-def get_top_cpu_process():
-    """
-    Returns (name, cpu_percent) of the top CPU process.
-    Note: potentially expensive; call sparingly or in a background thread.
-    """
-    try:
-        processes = []
-        for proc in psutil.process_iter(['name', 'cpu_percent']):
-            try:
-                cpu = proc.info['cpu_percent']
-                if cpu == 0.0:
-                    cpu = proc.cpu_percent(interval=0.1)
-                processes.append((proc.info['name'] or "Unknown", cpu))
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                continue
-        if not processes:
-            return ("N/A", 0.0)
-        return max(processes, key=lambda x: x[1])
-    except Exception:
-        return ("N/A", 0.0)
 
 # ---- GPU VRAM Usage (optional; Linux best) ----
 def get_gpu_vram():

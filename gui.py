@@ -122,6 +122,7 @@ def update_stats():
     frame_count += 3
 
     cpu = core.get_cpu_usage()
+    cpuL = core.get_load_average()
     ram_percent = core.get_ram_usage()
     core_freq = core.get_cpu_freq()
     gpu = core.get_gpu_usage()
@@ -151,6 +152,7 @@ def update_stats():
                     text=f"CPU Usage: {val:.1f}%  CPU Speed: {freq_text}"
                 )
             else:
+                freq_text = "N/A"
                 lbl.config(
                     foreground=lbl_color,
                     text=f"CPU Usage: {val:.1f}%  CPU Speed: N/A"
@@ -208,20 +210,25 @@ def update_stats():
 
     # === CPU Stats Tab ===
     cpu_labels = widgets["CPU Stats"]
-    cpu_labels["Load"].config(text=core.get_load_average())
-    cpu_labels["Uptime"].config(text=f"Uptime: {core.get_uptime()}")
 
-    procs = core.get_top_processes(limit=3)  # 3 processes only
+    # Combined CPU% + uptime in one line
+    cpu_labels["Info"].config(
+        text=f"CPU Load Avg: {cpuL}%  Uptime: {core.get_uptime()}"
+    )
+
+    # Top 3 processes
+    procs = core.get_top_processes(limit=3)
     header = "PID    USER       VIRT    RES   CPU%  MEM%  NAME"
     top_text = header + "\n" + "\n".join(procs)
     cpu_labels["Top Processes"].config(text=top_text)
 
     # === Dedicated Time & Uptime widget ===
     date_lbl, time_lbl = widgets["Time & Uptime"]
-    time_lbl.config(text=f"{core.get_local_time()}")  # Include AM/PM if formatted in core
-    date_lbl.config(text=f"Date: {core.get_local_date()}")  # Include weekday if formatted in core
+    time_lbl.config(text=f"{core.get_local_time()}")
+    date_lbl.config(text=f"Date: {core.get_local_date()}")
 
     root.after(REFRESH_MS, update_stats)
+
 
 # ==== Start everything ====
 def start_app():

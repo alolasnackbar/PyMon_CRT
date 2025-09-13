@@ -75,31 +75,31 @@ def build_metrics(root, style):
             nb.add(f_cpu, text="CPU Stats")
 
             cpu_labels = {}
-            # Load average
-            cpu_labels["Load"] = tb.Label(
-                f_cpu, text="Load average: ...", anchor="w",
-                font=FONT_INFOTXT, foreground=CRT_GREEN
-            )
-            cpu_labels["Load"].pack(fill=X, padx=4, pady=2)
 
-            # Uptime
-            cpu_labels["Uptime"] = tb.Label(
-                f_cpu, text="Uptime: ...", anchor="w",
-                font=FONT_INFOTXT, foreground=CRT_GREEN
-            )
-            cpu_labels["Uptime"].pack(fill=X, padx=4, pady=2)
-
-            # Top processes
-            cpu_labels["Top Processes"] = tb.Label(
+            # One line: CPU usage + uptime
+            cpu_info_lbl = tb.Label(
                 f_cpu,
-                text="PID    USER     NI   VIRT    RES   CPU%  MEM%  NAME",
+                text="CPU: ...  Uptime: ...",
                 anchor="w",
-                font=("Consolas", 9),
+                font=FONT_INFOTXT,
+                foreground=CRT_GREEN
+            )
+            cpu_info_lbl.pack(fill=X, padx=4, pady=2)
+            cpu_labels["Info"] = cpu_info_lbl
+
+            # Top processes (header + 3 rows)
+            cpu_top_lbl = tb.Label(
+                f_cpu,
+                text="PID    USER       VIRT    RES   CPU%  MEM%  NAME",
+                anchor="w",
+                font=("Consolas", 9),  # monospace for alignment
                 foreground=CRT_GREEN,
                 justify="left"
             )
-            cpu_labels["Top Processes"].pack(fill=X, padx=4, pady=4)
+            cpu_top_lbl.pack(fill=X, padx=4, pady=4)
+            cpu_labels["Top Processes"] = cpu_top_lbl
 
+            # Register labels into widgets dict
             widgets["CPU Stats"] = cpu_labels
 
             # --- Tab 3: GPU Stats ---
