@@ -48,8 +48,8 @@ def draw_screen(stdscr):
 
         # === CPU ===
         cpu_color = get_usage_color(cpu)
-        freq_ghz = (freq / 1000) if freq else 0
-        stdscr.addstr(1, 2, f"CPU Usage: {cpu:.1f}%  @ {freq_ghz:.1f} GHz", curses.color_pair(cpu_color))
+        freq_ghz = freq if freq else 0
+        stdscr.addstr(1, 2, f"CPU Usage: {cpu}%  @ {freq_ghz} GHz", curses.color_pair(cpu_color))
         stdscr.addstr(2, 4, ascii_bar(cpu, 100))
 
         # === RAM ===

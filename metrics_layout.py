@@ -72,7 +72,7 @@ def build_metrics(root, style):
 
             # --- Tab 2: CPU Stats (load, uptime, top processes) ---
             f_cpu = tb.Frame(nb)
-            nb.add(f_cpu, text="CPU Stats")
+            nb.add(f_cpu, text="Processing Stats")
 
             cpu_labels = {}
 
@@ -102,12 +102,22 @@ def build_metrics(root, style):
             # Register labels into widgets dict
             widgets["CPU Stats"] = cpu_labels
 
-            # --- Tab 3: GPU Stats ---
-            f_gpu = tb.Frame(nb)
-            nb.add(f_gpu, text="GPU Stats")
-            gpu_lbl = tb.Label(f_gpu, text="GPU Usage: ...", anchor="w",
-                            font=FONT_INFOTXT, foreground=CRT_GREEN)
-            gpu_lbl.pack(fill=X, padx=4, pady=2)
+            # --- Tab 3: Temperature Stats ---
+            f_temp = tb.Frame(nb)
+            nb.add(f_temp, text="Temperature Stats")
+            temp_labels = {}
+            
+            # Label for CPU temperature
+            cpu_temp_lbl = tb.Label(f_temp, text="CPU Temperature: ...", anchor="w",
+                                    font=FONT_INFOTXT, foreground=CRT_GREEN)
+            cpu_temp_lbl.pack(fill=X, padx=4, pady=1)
+            temp_labels["CPU Temp"] = cpu_temp_lbl
+            
+            # Label for GPU temperature
+            gpu_temp_lbl = tb.Label(f_temp, text="GPU Temperature: ...", anchor="w",
+                                    font=FONT_INFOTXT, foreground=CRT_GREEN)
+            gpu_temp_lbl.pack(fill=X, padx=4, pady=1)
+            temp_labels["GPU Temp"] = gpu_temp_lbl
 
             # --- Tab 4: Network Stats ---
             f_net = tb.Frame(nb)
@@ -125,14 +135,12 @@ def build_metrics(root, style):
             # Store widget references
             widgets["Sys Info"] = info_labels
             widgets["CPU Stats"] = cpu_labels   
-            info_labels["GPU Usage"] = gpu_lbl
+            widgets["Temp Stats"] = temp_labels # Correctly store the new temp labels dictionary
             info_labels["Net IN"] = net_in_lbl
             info_labels["Net OUT"] = net_out_lbl
             info_labels["Latency"] = latency_lbl
 
             widgets[name] = info_labels
-
-
 
         elif metric.get("timewidget", False):
             # Dedicated Time & Uptime widget

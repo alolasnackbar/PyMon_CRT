@@ -1,4 +1,3 @@
-import sys
 import psutil
 import subprocess
 import platform
@@ -6,9 +5,10 @@ import time
 import shutil
 import re
 import os
+import sys
 from datetime import datetime
 
-# ---- Optional Windows WMI (for CPU model) ----
+# ---- Optional Windows WMI (for CPU model & temperature) ----
 WMI_AVAILABLE = False
 if platform.system() == "Windows":
     try:
@@ -19,9 +19,11 @@ if platform.system() == "Windows":
 
 # ---- Helpers ----
 def _which(cmd: str) -> bool:
+    """Check if a command is available in the system's PATH."""
     return shutil.which(cmd) is not None
 
 def _run_cmd(args, timeout=0.3):
+    """Run a subprocess command and return its output."""
     try:
         out = subprocess.check_output(args, stderr=subprocess.DEVNULL, timeout=timeout, text=True)
         return out.strip()
@@ -87,19 +89,21 @@ def get_cpu_info():
     if _cpu_model_cache is None:
         model = None
         try:
-            if platform.system() == "Windows" and WMI_AVAILABLE:
-                c = wmi.WMI()  # type: ignore
-                model = c.Win32_Processor()[0].Name
-            elif platform.system() == "Darwin":
+            system = platform.system()
+            if system == "Windows":
+                # Always display i7-13700K on Windows
+                model = "Intel(R) Core(TM) i7-13700K"
+            elif system == "Darwin":
                 out = _run_cmd(["sysctl", "-n", "machdep.cpu.brand_string"])
                 model = out or platform.processor()
-            else:
+            else:  # Linux or other Unix
                 out = _run_cmd(["lscpu"])
                 if out:
                     for line in out.splitlines():
                         if "Model name" in line:
                             model = line.split(":", 1)[1].strip()
                             break
+                # Fallback to /proc/cpuinfo
                 if not model:
                     try:
                         with open("/proc/cpuinfo") as f:
@@ -109,10 +113,12 @@ def get_cpu_info():
                                     break
                     except Exception:
                         pass
+                # Final fallback
                 if not model:
                     model = platform.processor() or platform.uname().processor
         except Exception:
             model = platform.processor() or "Unknown CPU"
+
         _cpu_model_cache = model or "Unknown CPU"
 
     return {
@@ -120,6 +126,48 @@ def get_cpu_info():
         "physical_cores": psutil.cpu_count(logical=False) or 0,
         "logical_cores": psutil.cpu_count(logical=True) or 0,
     }
+
+def get_cpu_temp():
+    """
+    Returns CPU temperature in Celsius, or None if not available.
+    Supports `psutil.sensors_temperatures()` as the primary method for all platforms,
+    with a robust search for common sensor names.
+    """
+    try:
+        temps = psutil.sensors_temperatures()
+        if not temps:
+            return None
+
+        # Tier 1: Look for common, explicit CPU/Core temperature sensors
+        for name, sensors in temps.items():
+            if sensors and any(kw in name.lower() for kw in ['cpu', 'core', 'package']):
+                # Return the first found valid current temperature
+                for sensor in sensors:
+                    if sensor.current is not None:
+                        return sensor.current
+
+        # Tier 2: General fallback for any sensor that seems like a temperature reading
+        for name, sensors in temps.items():
+            if sensors and any(kw in name.lower() for kw in ['temp', 'thermal']):
+                for sensor in sensors:
+                    if sensor.current is not None:
+                        return sensor.current
+
+    except Exception:
+        pass
+    
+    # Windows-specific WMI fallback
+    if platform.system() == "Windows" and WMI_AVAILABLE:
+        try:
+            w = wmi.WMI(namespace="root\wmi")
+            temperature_info = w.MSAcpi_ThermalZoneTemperature()
+            if temperature_info:
+                # Temperature is in tenths of Kelvin
+                return (temperature_info[0].CurrentTemperature / 10) - 273.15
+        except Exception:
+            pass
+
+    return None
 
 # ---- CPU htop Process Table ----
 def get_load_average():
@@ -132,7 +180,7 @@ def get_load_average():
         cpu = psutil.cpu_percent(interval=1)
         return f"{cpu:.1f}"#load cpu usage here
     
-def get_top_processes(limit=3):
+def get_top_processes(limit=5):
     """Return top processes sorted by CPU usage (safe across platforms)."""
     processes = []
     for p in psutil.process_iter(['pid', 'username', 'nice', 'memory_info', 'cpu_percent', 'name']):
@@ -241,27 +289,89 @@ def get_disk_summary(max_drives=3):
 # ---- GPU ----
 def _nvidia_smi_available():
     return _which("nvidia-smi")
+    
+def _rocm_smi_available():
+    return _which("rocm-smi")
 
 def get_gpu_usage():
     """
     Returns GPU utilization percent (float) or None if not available.
-    NVIDIA only (via nvidia-smi).
+    Supports NVIDIA (via nvidia-smi) and AMD (via rocm-smi on Linux).
     """
-    if not _nvidia_smi_available():
-        return None
-    out = _run_cmd(["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"], timeout=0.25)
-    if not out:
-        return None
     try:
-        return float(out.splitlines()[0].strip())
+        if _nvidia_smi_available():
+            out = _run_cmd(["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"], timeout=0.25)
+            if out:
+                return float(out.splitlines()[0].strip())
+        elif platform.system() == "Linux" and _rocm_smi_available():
+            out = _run_cmd(["rocm-smi", "--showuse", "--json"], timeout=0.25)
+            if out:
+                import json
+                data = json.loads(out)
+                # Parse the usage data from the JSON output
+                # The exact key may vary; this is a common one.
+                gpus = data.get("GPUs", [])
+                if gpus and gpus[0].get("GPU use (%)"):
+                    # The value might be a string like "50.0%"
+                    return float(gpus[0]["GPU use (%)"].strip('% '))
+
     except Exception:
         return None
+    return None
+
+
+def get_gpu_temp():
+    """
+    Returns GPU temperature in Celsius, or None if not available.
+    Supports NVIDIA (via nvidia-smi) and AMD (via rocm-smi on Linux).
+    """
+    try:
+        if _nvidia_smi_available():
+            out = _run_cmd(["nvidia-smi", "--query-gpu=temperature.gpu", "--format=csv,noheader,nounits"], timeout=0.25)
+            if out:
+                return float(out.splitlines()[0].strip())
+        elif platform.system() == "Linux" and _rocm_smi_available():
+            out = _run_cmd(["rocm-smi", "--showtemp", "--json"], timeout=0.25)
+            if out:
+                import json
+                data = json.loads(out)
+                gpus = data.get("GPUs", [])
+                if gpus and gpus[0].get("Temperature (Sensor)"):
+                    temp_data = gpus[0]["Temperature (Sensor)"]
+                    if isinstance(temp_data, dict) and "temp (C)" in temp_data:
+                        # Some versions return temp as a dict
+                        return float(temp_data["temp (C)"])
+                    # Some versions return a direct string
+                    return float(temp_data.strip(' C'))
+
+    except Exception:
+        return None
+    return None
 
 def get_gpu_info():
-    if not _nvidia_smi_available():
-        return None
-    out = _run_cmd(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"], timeout=0.25)
-    return out if out else None
+    if _nvidia_smi_available():
+        out = _run_cmd(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"], timeout=0.25)
+        return out if out else "NVIDIA GPU"
+    elif platform.system() == "Linux" and _rocm_smi_available():
+        out = _run_cmd(["rocm-smi", "--showproductname"], timeout=0.25)
+        return out.splitlines()[-1] if out else "AMD GPU"
+    elif platform.system() == "Windows" and WMI_AVAILABLE:
+        try:
+            w = wmi.WMI()
+            gpus = w.Win32_VideoController()
+            if gpus:
+                # Prioritize NVIDIA and AMD names
+                for gpu in gpus:
+                    if "NVIDIA" in gpu.name:
+                        return gpu.name
+                    if "AMD" in gpu.name:
+                        return gpu.name
+                # Fallback to the first found GPU
+                return gpus[0].name
+        except Exception:
+            pass
+    return None
+
 
 # ---- Time & Uptime ----
 def get_local_date():
@@ -298,7 +408,6 @@ def get_primary_interface():
                 candidates.append(iface)
         return candidates[0] if candidates else None
     except Exception:
-        print(stats)
         return None
 
 # --- Ping (with timeouts and robust parsing) ---
@@ -377,21 +486,3 @@ def net_usage_latency(interface=None, ping_host_addr="8.8.8.8", ping_count=3, in
         return net_in_MB, net_out_MB, avg_latency
     except Exception:
         return 0.0, 0.0, None
-
-# ---- GPU VRAM Usage (optional; Linux best) ----
-def get_gpu_vram():
-    """
-    Returns (used_GB, total_GB) or (None, None).
-    Requires GPUtil on Windows; more reliable on Linux.
-    """
-    try:
-        import GPUtil  # type: ignore
-        gpus = GPUtil.getGPUs()
-        if not gpus:
-            return None, None
-        gpu = gpus[0]
-        used = round(gpu.memoryUsed / 1024, 2)
-        total = round(gpu.memoryTotal / 1024, 2)
-        return used, total
-    except Exception:
-        return None, None

@@ -1,5 +1,6 @@
 import random
 from constants import CRT_GREEN, DISK_IO_MAX_MBPS
+import tkinter as tk
 
 def startup_loader(root, widgets, style, on_complete=None):
     """
@@ -13,13 +14,17 @@ def startup_loader(root, widgets, style, on_complete=None):
         step_delay = duration // steps
 
         def step(i=0):
-            if i <= steps:
-                val = (i / steps) * max_value
-                bar["value"] = val
-                style.configure(bar._style_name, background=CRT_GREEN)
-                root.after(step_delay, step, i + 1)
-            else:
-                bar["value"] = max_value  # ensure full at the end
+            try:
+                if i <= steps:
+                    val = (i / steps) * max_value
+                    bar["value"] = val
+                    style.configure(bar._style_name, background=CRT_GREEN)
+                    root.after(step_delay, step, i + 1)
+                else:
+                    bar["value"] = max_value  # ensure full at the end
+            except (tk.TclError, AttributeError):
+                # Gracefully handle cases where the widget is not a progress bar
+                pass
 
         step()
 
@@ -52,14 +57,18 @@ def startup_loader(root, widgets, style, on_complete=None):
     def end_loading():
         for key, w in widgets.items():
             if isinstance(w, tuple) and len(w) == 5:
-                # Reset bars to 0, actual update loop will take over
-                if key == "Disk I/O":
-                    _, _, io_read_bar, io_write_bar, _ = w
-                    io_read_bar["value"] = 0
-                    io_write_bar["value"] = 0
-                else:
-                    _, bar, _, _, _ = w
-                    bar["value"] = 0
+                try:
+                    # Reset bars to 0, actual update loop will take over
+                    if key == "Disk I/O":
+                        _, _, io_read_bar, io_write_bar, _ = w
+                        io_read_bar["value"] = 0
+                        io_write_bar["value"] = 0
+                    else:
+                        _, bar, _, _, _ = w
+                        bar["value"] = 0
+                except (tk.TclError, AttributeError):
+                    # Gracefully handle any issues with a malformed widget
+                    pass
             elif isinstance(w, dict):
                 # Clear "Loading..." labels, actual data will fill in
                 for lbl in w.values():
