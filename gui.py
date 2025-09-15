@@ -5,6 +5,9 @@ import queue
 import pygetwindow as gw
 import ctypes
 from screeninfo import get_monitors
+import os
+import sys
+import subprocess
 
 from constants import *
 from crt_graphics import CRTGrapher, ThreadedDataFetcher
@@ -26,10 +29,44 @@ PING_COUNT = 3
 # Thread-safe queue for communication
 data_queue = queue.Queue()
 
+def get_startup_monitor():
+    """Reads the selected monitor index from startup_config.txt."""
+    try:
+        with open("startup_config.txt", "r") as f:
+            monitor_index = int(f.read().strip())
+            return monitor_index
+    except (FileNotFoundError, ValueError):
+        return 0 # Default to primary monitor if file not found or invalid
+
+def open_startup_settings():
+    """Closes the current GUI and opens the startup settings script."""
+    root.destroy()
+    try:
+        subprocess.run([sys.executable, "startup_set.py"], check=True)
+    except FileNotFoundError:
+        print("Error: startup_set.py not found. Please ensure it's in the same directory.")
+    except subprocess.CalledProcessError:
+        print("Error: The setup script failed to run.")
+
 # ==== Main GUI setup ====
 root = tb.Window(themename="darkly")
 root.title("AlohaSnackBar Hardware Monitor")
-root.geometry("960x600")
+
+# Read the saved configuration and set window position
+monitor_idx = get_startup_monitor()
+monitors = get_monitors()
+if 0 < monitor_idx <= len(monitors):
+    monitor = monitors[monitor_idx - 1]
+    # Check if the monitor resolution is small enough for auto-fullscreen
+    if monitor.width <= 960 and monitor.height <= 600:
+        root.geometry(f"{monitor.width}x{monitor.height}+{monitor.x}+{monitor.y}")
+        root.overrideredirect(True)
+        fullscreen = True
+    else:
+        root.geometry(f"960x600+{monitor.x + 100}+{monitor.y + 100}")
+else:
+    # Use default position if the index is invalid
+    root.geometry("960x600")
 
 # Configure root grid weights
 for i in range(3):
@@ -52,7 +89,7 @@ file_menu.add_command(label="Exit", command=exit)
 # Control menu
 control_menu = tb.Menu(main_menu, tearoff=0)
 main_menu.add_cascade(label="Control", menu=control_menu)
-control_menu.add_command(label="Start Up set", command=lambda: print("Start clicked"))
+control_menu.add_command(label="Start Up set", command=open_startup_settings)
 control_menu.add_command(label="Mode", command=lambda: print("mode clicked"))
 
 # Settings menu
@@ -222,7 +259,7 @@ def update_heavy_stats():
             #print("temp cvals",cpu_temp)
             #print("temp gvals",gpu_temp)
             procs = core.get_top_processes(limit=5)
-            header = "PID      USER        VIRT      RES   CPU%   MEM%   NAME"
+            header = "PID       USER         VIRT      RES   CPU%   MEM%   NAME"
             top_text = header + "\n" + "\n".join(procs)
 
             load_avg = core.get_load_average()
@@ -288,5 +325,19 @@ def start_app():
     update_time()
     update_gui()
 
-startup_loader(root, widgets, style, on_complete=start_app)
-root.mainloop()
+# Main application entry point
+if __name__ == "__main__":
+    if not os.path.exists("startup_config.txt"):
+        # Run the setup script if the config file doesn't exist
+        print("Running startup setup...")
+        try:
+            # Use sys.executable for better cross-platform compatibility
+            subprocess.run([sys.executable, "startup_set.py"], check=True)
+        except FileNotFoundError:
+            print("Error: startup_set.py not found. Please ensure it's in the same directory.")
+        except subprocess.CalledProcessError:
+            print("Error: The setup script failed to run.")
+
+    # Start the main application loop
+    startup_loader(root, widgets, style, on_complete=start_app)
+    root.mainloop()
