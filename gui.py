@@ -39,6 +39,32 @@ for i in range(2):
 
 style = tb.Style()
 
+# ==== Build the Menu Bar ====
+main_menu = tb.Menu(root)
+root.config(menu=main_menu)
+
+# File menu
+file_menu = tb.Menu(main_menu, tearoff=0)
+main_menu.add_cascade(label="Run", menu=file_menu)
+file_menu.add_command(label="Check Update", command=lambda: print("Patch Title clicked"))
+file_menu.add_command(label="Exit", command=exit)
+
+# Control menu
+control_menu = tb.Menu(main_menu, tearoff=0)
+main_menu.add_cascade(label="Control", menu=control_menu)
+control_menu.add_command(label="Start Up set", command=lambda: print("Start clicked"))
+control_menu.add_command(label="Mode", command=lambda: print("mode clicked"))
+
+# Settings menu
+settings_menu = tb.Menu(main_menu, tearoff=0)
+main_menu.add_cascade(label="Settings", menu=settings_menu)
+settings_menu.add_command(label="Settings", command=lambda: print("Settings clicked"))
+
+# Help menu
+help_menu = tb.Menu(main_menu, tearoff=0)
+main_menu.add_cascade(label="Help", menu=help_menu)
+help_menu.add_command(label="WatDoing (Help)", command=lambda: print("WatDoing clicked"))
+
 # ==== Build Metrics ====
 widgets = build_metrics(root, style)
 
