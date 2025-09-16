@@ -2,7 +2,7 @@
 import ttkbootstrap as tb
 from ttkbootstrap.constants import *
 from constants import *
-from widgets import build_metric_frame, center_overlay_label
+from widgets import build_metric_frame #center_overlay_label
 
 # ==== Build metrics ====
 def build_metrics(root, style):
@@ -166,7 +166,5 @@ def build_metrics(root, style):
             root.rowconfigure(row, weight=1)
             root.columnconfigure(col, weight=1)
             widgets[name] = (lbl, bar, cvs, metric["maxval"], overlay_lbl)
-            if name == "RAM" and overlay_lbl:
-                bar.bind("<Configure>", lambda e, b=bar, l=overlay_lbl: center_overlay_label(b, l))
 
     return widgets

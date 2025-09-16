@@ -5,13 +5,13 @@ from constants import *
 import os
 import sys
 import subprocess
+import shutil
 
 # ==== Main GUI setup ====
 root = tb.Window(themename="darkly")
 root.title("AlohaSnackBar Hardware Monitor - Setup")
-root.geometry("600x400")
 
-# Center the window on the screen
+# Get screen dimensions and center the window
 window_width = 600
 window_height = 600
 screen_width = root.winfo_screenwidth()
@@ -31,12 +31,14 @@ fg_color = style.lookup('TLabel', 'foreground')
 main_frame = tk.Frame(root, bg=bg_color)
 main_frame.pack(expand=True, padx=20, pady=20)
 
-# === Title and Patch Notes ===
+## Title and Patch Notes
+
 app_title = tb.Label(
     main_frame,
     text="AlohaSnackBar Hardware Monitor",
     font=FONT_TITLE,
-    foreground=fg_color,
+    foreground=CRT_GREEN,
+    background=bg_color,
     bootstyle="inverse-primary"
 )
 app_title.pack(pady=(0, 10))
@@ -56,13 +58,14 @@ patch_notes_label = tb.Label(
     main_frame,
     text=patch_notes_text,
     font=FONT_INFOTXT,
-    foreground=fg_color,
+    foreground=CRT_GREEN,
+    background=bg_color,
     justify="center"
 )
 patch_notes_label.pack(pady=10)
 
-# ---
-# === Startup Options Section ===
+## Startup Options
+
 options_frame = tk.Frame(main_frame, bg=bg_color)
 options_frame.pack(pady=20)
 
@@ -70,7 +73,8 @@ start_options_label = tb.Label(
     options_frame,
     text="Start on:",
     font=FONT_INFOTXT,
-    foreground=fg_color,
+    foreground=CRT_GREEN,
+    background=bg_color,
     bootstyle="inverse-primary"
 )
 start_options_label.pack(pady=(0, 10))
@@ -84,7 +88,7 @@ default_radio = tb.Radiobutton(
     text="Current Display",
     value="0",
     variable=monitor_choice,
-    bootstyle="round-toggle"
+    bootstyle="success",
 )
 default_radio.pack(anchor="w", pady=5)
 
@@ -101,7 +105,7 @@ try:
                 text=display_text,
                 value=str(i + 1),
                 variable=monitor_choice,
-                bootstyle="round-toggle"
+                bootstyle="success",
             )
             radiobutton.pack(anchor="w", pady=5)
     else:
@@ -121,16 +125,147 @@ except Exception:
     )
     no_display_label.pack(pady=5)
 
+## Startup and Cleanup Logic
 
-# Checkbox for starting on computer boot
-startup_checkbox = tb.Checkbutton(
-    options_frame,
-    text="Start on computer boot",
-    bootstyle="round-toggle",
+def setup_startup_boot():
+    """Sets up the application to run automatically on system boot."""
+    script_path = os.path.abspath("gui.py")
+    if sys.platform.startswith('win'):
+        try:
+            startup_folder = os.path.join(os.getenv('APPDATA'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
+            shortcut_path = os.path.join(startup_folder, "HardwareMonitor.bat")
+            with open(shortcut_path, "w") as f:
+                f.write(f'@echo off\npy "{script_path}"')
+            
+            tb.dialogs.Messagebox.show_info(
+                title="Startup Configured", 
+                message=f"Successfully configured for Windows startup.\n\nThe app will start on boot.\nShortcut path: {shortcut_path}"
+            )
+            print("Successfully configured for Windows startup.")
+        except Exception as e:
+            tb.dialogs.Messagebox.show_error(
+                title="Startup Configuration Error",
+                message=f"An error occurred while trying to configure startup.\nError: {e}"
+            )
+            print(f"Error setting up Windows startup: {e}")
+    elif sys.platform.startswith('linux'):
+        try:
+            autostart_dir = os.path.join(os.path.expanduser('~'), '.config', 'autostart')
+            if not os.path.exists(autostart_dir):
+                os.makedirs(autostart_dir)
+            desktop_file_path = os.path.join(autostart_dir, "hardware-monitor.desktop")
+            desktop_content = f"""[Desktop Entry]
+Type=Application
+Exec={sys.executable} {script_path}
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Name[en_US]=Hardware Monitor
+Comment[en_US]=Monitors system hardware usage
+"""
+            with open(desktop_file_path, "w") as f:
+                f.write(desktop_content)
+            print("Successfully configured for Linux startup.")
+            tb.dialogs.Messagebox.show_info("Startup configured! The app will start on boot.", "Success")
+        except Exception as e:
+            tb.dialogs.Messagebox.show_error(f"Failed to configure startup: {e}", "Error")
+            print(f"Error setting up Linux startup: {e}")
+    elif sys.platform == 'darwin':
+        try:
+            plist_dir = os.path.join(os.path.expanduser('~'), 'Library', 'LaunchAgents')
+            if not os.path.exists(plist_dir):
+                os.makedirs(plist_dir)
+            plist_path = os.path.join(plist_dir, "com.alohasnackbar.hwmonitor.plist")
+            plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.alohasnackbar.hwmonitor</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{sys.executable}</string>
+        <string>{script_path}</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+</dict>
+</plist>
+"""
+            with open(plist_path, "w") as f:
+                f.write(plist_content)
+            print("Successfully configured for macOS startup.")
+            tb.dialogs.Messagebox.show_info("Startup configured! The app will start on boot.", "Success")
+        except Exception as e:
+            tb.dialogs.Messagebox.show_error(f"Failed to configure startup: {e}", "Error")
+            print(f"Error setting up macOS startup: {e}")
+    else:
+        tb.dialogs.Messagebox.show_warning("Startup not configured. Unsupported OS.", "Warning")
+        print("Warning: Unsupported operating system for startup configuration.")
+
+
+def clear_startup_and_cache():
+    """Removes startup configurations and data files."""
+    if sys.platform.startswith('win'):
+        try:
+            startup_folder = os.path.join(os.getenv('APPDATA'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
+            bat_path = os.path.join(startup_folder, "HardwareMonitor.bat")
+            if os.path.exists(bat_path):
+                os.remove(bat_path)
+                print("Removed Windows startup file.")
+        except Exception as e:
+            print(f"Error removing Windows startup file: {e}")
+    elif sys.platform.startswith('linux'):
+        try:
+            autostart_dir = os.path.join(os.path.expanduser('~'), '.config', 'autostart')
+            desktop_file_path = os.path.join(autostart_dir, "hardware-monitor.desktop")
+            if os.path.exists(desktop_file_path):
+                os.remove(desktop_file_path)
+                print("Removed Linux startup file.")
+        except Exception as e:
+            print(f"Error removing Linux startup file: {e}")
+    elif sys.platform == 'darwin':
+        try:
+            plist_dir = os.path.join(os.path.expanduser('~'), 'Library', 'LaunchAgents')
+            plist_path = os.path.join(plist_dir, "com.alohasnackbar.hwmonitor.plist")
+            if os.path.exists(plist_path):
+                os.remove(plist_path)
+                print("Removed macOS startup file.")
+        except Exception as e:
+            print(f"Error removing macOS startup file: {e}")
+
+    try:
+        if os.path.exists("startup_config.txt"):
+            os.remove("startup_config.txt")
+            print("Removed startup_config.txt.")
+    except Exception as e:
+        print(f"Error removing local cache files: {e}")
+
+    tb.dialogs.Messagebox.show_info("Startup configuration and local cache files have been removed.", "Cleanup Complete")
+
+# Create a frame to hold the two buttons
+button_frame = tk.Frame(options_frame, bg=bg_color)
+button_frame.pack(pady=10)
+
+# The buttons are packed side-by-side using the `side=LEFT` and `padx` options
+startup_button = tb.Button(
+    button_frame,
+    text="Set to Run on Boot",
+    bootstyle="info-outline",
+    command=setup_startup_boot
 )
-startup_checkbox.pack(anchor="w", pady=10)
+startup_button.pack(side=tk.LEFT, padx=5)
 
-# Function to save the selected monitor to a file
+cleanup_button = tb.Button(
+    button_frame,
+    text="Clear Startup & Cache",
+    bootstyle="warning-outline",
+    command=clear_startup_and_cache
+)
+cleanup_button.pack(side=tk.LEFT, padx=5)
+
+## Main App Button
+
 def save_and_close():
     selected_monitor = monitor_choice.get()
     try:
@@ -140,21 +275,18 @@ def save_and_close():
         print(f"Error writing startup config file: {e}")
     root.destroy()
     try:
-        # Run the gui.py script after the setup is complete
         subprocess.run([sys.executable, "gui.py"], check=True)
     except FileNotFoundError:
         print("Error: gui.py not found. Please ensure it's in the same directory.")
     except subprocess.CalledProcessError:
         print("Error: The GUI script failed to run.")
 
-# Add a placeholder button to "start" the app after setup
 start_button = tb.Button(
     main_frame,
     text="Start Monitor",
     bootstyle="success-outline",
     command=save_and_close,
 )
-
 start_button.pack(pady=(20, 0))
 
 root.mainloop()

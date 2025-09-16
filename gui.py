@@ -2,8 +2,6 @@ import ttkbootstrap as tb
 from ttkbootstrap.constants import *
 import threading
 import queue
-import pygetwindow as gw
-import ctypes
 from screeninfo import get_monitors
 import os
 import sys
@@ -15,60 +13,63 @@ from metrics_layout import build_metrics
 from startup_loader import startup_loader
 import monitor_core as core
 
-# refresh tiers
-REFRESH_GUI_MS = 100 # GUI refresh rate
-REFRESH_HEAVY_MS = REFRESH_MS * 5 # Sysinfo/Processes (heavy)
-REFRESH_SLOW_MS = REFRESH_MS * 2 # Added for network updates
+# --- Refresh Tiers ---
+REFRESH_GUI_MS = 100
+REFRESH_HEAVY_MS = REFRESH_MS * 5
+REFRESH_SLOW_MS = REFRESH_MS * 2
 
-# ==== Global settings ====
+# --- Global Settings ---
 network_results = {"in_MB": 0, "out_MB": 0, "latency_ms": 0}
 NETWORK_INTERFACE = None
 PING_HOST = "8.8.8.8"
 PING_COUNT = 3
-
-# Thread-safe queue for communication
 data_queue = queue.Queue()
 
+# --- Startup & Configuration ---
+
 def get_startup_monitor():
-    """Reads the selected monitor index from startup_config.txt."""
+    """Reads the selected monitor index from the config file."""
     try:
         with open("startup_config.txt", "r") as f:
-            monitor_index = int(f.read().strip())
-            return monitor_index
+            return int(f.read().strip())
     except (FileNotFoundError, ValueError):
-        return 0 # Default to primary monitor if file not found or invalid
+        return 0  # Default to current/primary monitor
 
 def open_startup_settings():
-    """Closes the current GUI and opens the startup settings script."""
+    """Closes the current GUI and re-runs the startup settings script."""
     root.destroy()
     try:
         subprocess.run([sys.executable, "startup_set.py"], check=True)
     except FileNotFoundError:
-        print("Error: startup_set.py not found. Please ensure it's in the same directory.")
+        print("Error: startup_set.py not found.")
     except subprocess.CalledProcessError:
         print("Error: The setup script failed to run.")
 
-# ==== Main GUI setup ====
+# ==== Main GUI Setup =============
 root = tb.Window(themename="darkly")
 root.title("AlohaSnackBar Hardware Monitor")
 
-# Read the saved configuration and set window position
-monitor_idx = get_startup_monitor()
-monitors = get_monitors()
-if 0 < monitor_idx <= len(monitors):
-    monitor = monitors[monitor_idx - 1]
-    # Check if the monitor resolution is small enough for auto-fullscreen
-    if monitor.width <= 960 and monitor.height <= 600:
-        root.geometry(f"{monitor.width}x{monitor.height}+{monitor.x}+{monitor.y}")
-        root.overrideredirect(True)
-        fullscreen = True
-    else:
-        root.geometry(f"960x600+{monitor.x + 100}+{monitor.y + 100}")
-else:
-    # Use default position if the index is invalid
-    root.geometry("960x600")
+fullscreen = False  # Initialize here to use in startup geometry
 
-# Configure root grid weights
+# Set window position based on saved config
+monitor_idx = get_startup_monitor()
+try:
+    monitors = get_monitors()
+    if 0 < monitor_idx <= len(monitors):
+        monitor = monitors[monitor_idx - 1]
+        # Auto-fullscreen for smaller resolutions
+        if monitor.width <= 960 and monitor.height <= 600:
+            root.geometry(f"{monitor.width}x{monitor.height}+{monitor.x}+{monitor.y}")
+            root.overrideredirect(True)
+            fullscreen = True
+        else:
+            root.geometry(f"960x600+{monitor.x + 100}+{monitor.y + 100}")
+    else:
+        root.geometry("960x600")
+except Exception:
+    root.geometry("960x600") # Fallback if get_monitors fails
+
+# Configure root grid weights for resizing
 for i in range(3):
     root.rowconfigure(i, weight=1)
 for i in range(2):
@@ -76,36 +77,28 @@ for i in range(2):
 
 style = tb.Style()
 
-# ==== Build the Menu Bar ====
+# ==== Menu Bar =============
 main_menu = tb.Menu(root)
 root.config(menu=main_menu)
 
-# File menu
+# --- Sub-menus ---
 file_menu = tb.Menu(main_menu, tearoff=0)
 main_menu.add_cascade(label="Run", menu=file_menu)
-file_menu.add_command(label="Check Update", command=lambda: print("Patch Title clicked"))
-file_menu.add_command(label="Exit", command=exit)
+file_menu.add_command(label="Check Update", command=lambda: print("Update check clicked"))
+file_menu.add_separator()
+file_menu.add_command(label="Exit", command=root.quit)
 
-# Control menu
 control_menu = tb.Menu(main_menu, tearoff=0)
 main_menu.add_cascade(label="Control", menu=control_menu)
-control_menu.add_command(label="Start Up set", command=open_startup_settings)
-control_menu.add_command(label="Mode", command=lambda: print("mode clicked"))
+control_menu.add_command(label="Startup Settings", command=open_startup_settings)
 
-# Settings menu
-settings_menu = tb.Menu(main_menu, tearoff=0)
-main_menu.add_cascade(label="Settings", menu=settings_menu)
-settings_menu.add_command(label="Settings", command=lambda: print("Settings clicked"))
-
-# Help menu
 help_menu = tb.Menu(main_menu, tearoff=0)
 main_menu.add_cascade(label="Help", menu=help_menu)
-help_menu.add_command(label="WatDoing (Help)", command=lambda: print("WatDoing clicked"))
+help_menu.add_command(label="WatDoing (Help)", command=lambda: print("Help clicked"))
 
-# ==== Build Metrics ====
+# ==== Build Widgets & Graphics ============
 widgets = build_metrics(root, style)
 
-# Initialize the CRTGrapher instance
 disk_io_widgets = widgets["Disk I/O"]
 crt_grapher = CRTGrapher(
     canvas=widgets["CPU"][2],
@@ -118,125 +111,115 @@ crt_grapher = CRTGrapher(
     io_write_lbl=disk_io_widgets[1]
 )
 
-# ==== Helper functions ====
+# ==== Helper Functions =================
+def get_temp_color(value):
+    """Returns a color based on temperature thresholds."""
+    if value is None: return CRT_GREEN
+    if value < 75: return CRT_GREEN
+    elif value < 90: return CRT_YELLOW
+    else: return CRT_RED
+
 def get_usage_color(value):
+    """Returns a color based on usage percentage thresholds."""
+    if value is None: return CRT_GREEN
     if value < 60: return CRT_GREEN
     elif value < 80: return CRT_YELLOW
     else: return CRT_RED
 
-# ==== Background network update ====
-def update_network_stats():
-    global network_results
-    try:
-        net_in, net_out, avg_latency = core.net_usage_latency(
-            interface=NETWORK_INTERFACE,
-            ping_host_addr=PING_HOST,
-            ping_count=PING_COUNT
-        )
-        network_results["in_MB"] = net_in
-        network_results["out_MB"] = net_out
-        network_results["latency_ms"] = avg_latency
-    except Exception as e:
-        print("Network stats error:", e)
-
-def schedule_network_update():
-    threading.Thread(target=update_network_stats, daemon=True).start()
-    root.after(REFRESH_SLOW_MS, schedule_network_update)
-
-# ==== Fullscreen Utilities ====
-fullscreen = False
+# ==== Fullscreen Management =============
 prev_geometry = None
 
 def get_current_monitor_geometry():
-    x = root.winfo_x() + root.winfo_width() // 2
-    y = root.winfo_y() + root.winfo_height() // 2
-    for m in get_monitors():
-        if m.x <= x < m.x + m.width and m.y <= y < m.y + m.height:
-            return m.width, m.height, m.x, m.y
-    primary = [m for m in get_monitors() if m.is_primary][0]
-    return primary.width, primary.height, primary.x, primary.y
-
-def enter_fullscreen():
-    global fullscreen, prev_geometry
-    if fullscreen: return
-    fullscreen = True
-    prev_geometry = root.geometry()
-    w, h, x, y = get_current_monitor_geometry()
-    root.overrideredirect(True)
-    root.geometry(f"{w}x{h}+{x}+{y}")
-
-def exit_fullscreen(event=None):
-    global fullscreen
-    if not fullscreen: return
-    fullscreen = False
-    root.overrideredirect(False)
-    if prev_geometry:
-        root.geometry(prev_geometry)
+    """Finds the geometry of the monitor the window is currently on."""
+    try:
+        x, y = root.winfo_x(), root.winfo_y()
+        for m in get_monitors():
+            if m.x <= x < m.x + m.width and m.y <= y < m.y + m.height:
+                return m.width, m.height, m.x, m.y
+        # Fallback to primary if window is out of bounds
+        primary = [m for m in get_monitors() if m.is_primary][0]
+        return primary.width, primary.height, primary.x, primary.y
+    except Exception:
+        return 1920, 1080, 0, 0 # Generic fallback
 
 def toggle_fullscreen(event=None):
+    """Toggles the application's fullscreen state."""
+    global fullscreen, prev_geometry
+    fullscreen = not fullscreen
     if fullscreen:
-        exit_fullscreen()
-    else:
-        enter_fullscreen()
-
-def monitor_tracker():
-    if fullscreen:
+        prev_geometry = root.geometry()
         w, h, x, y = get_current_monitor_geometry()
+        root.overrideredirect(True)
         root.geometry(f"{w}x{h}+{x}+{y}")
     else:
-        root.geometry("960x600")
-    root.after(500, monitor_tracker)
+        root.overrideredirect(False)
+        if prev_geometry:
+            root.geometry(prev_geometry)
 
-# ==== Bindings ====
+# Bindings
 root.bind("<F11>", toggle_fullscreen)
-root.bind("<Escape>", exit_fullscreen)
-monitor_tracker()
+root.bind("<Escape>", lambda e: toggle_fullscreen())
 
-# ==== Main update loop for the GUI ====
-def _update_metric_display(key, history, usage_values):
-    val = usage_values[key]
+# =================================================
+# ==== GUI Update Loops ================
+def _update_metric_display(key, history):
+    """Updates a primary metric widget (CPU, GPU, RAM)."""
+    val = history.get(key, [None])[-1]
     if val is None:
         return
-    
-    lbl, bar, cvs, maxv, overlay_lbl = widgets[key]
-    lbl_color = get_usage_color(val) if val == max(v for v in usage_values.values() if v is not None) else CRT_GREEN
 
+    lbl, bar, cvs, maxv, overlay_lbl = widgets[key]
+    lbl_color = get_usage_color(val)
+
+    # --- Use fixed-width formatting to prevent widget shifting ---
     if key == "CPU":
         freq_tuple = core.get_cpu_freq()
-        freq_text = f"{freq_tuple[0]:.2f} GHz" if freq_tuple else "N/A"
-        lbl.config(foreground=lbl_color, text=f"CPU Usage: {val:.1f}%  CPU Speed: {freq_text}")
-    else:
-        lbl.config(foreground=lbl_color, text=f"{key} Usage: {val:.1f}%")
+        freq_text = f"{freq_tuple[0]:>4.2f} GHz" if freq_tuple and freq_tuple[0] else " N/A "
+        lbl.config(foreground=lbl_color, text=f"CPU Usage: {val:>5.1f}%   CPU Speed: {freq_text}")
+    elif key == "RAM":
+        ram_info = core.get_ram_info()
+        used = ram_info.get('used', 0)
+        avail = ram_info.get('available', 0)
+        lbl.config(foreground=lbl_color, text=f"RAM used {used:>5.2f} GB / free {avail:>5.2f} GB")
+        
+        if overlay_lbl:
+            # 1. Calculate the center of the FILLED portion of the bar
+            # new_relx is a value from 0.0 to 0.5
+            new_relx = (val / 200) 
+            
+            # 2. Hide text if the bar is too empty to fit it, otherwise show it
+            display_text = f"{val:.1f}%" if val > 15 else ""
+
+            # 3. Update the label's color AND text
+            overlay_lbl.config(
+                text=display_text, 
+                background=lbl_color, # Match the bar's color
+                foreground="black"    # Use black text for contrast
+            )
+
+            # 4. Update the label's position to the new center
+            overlay_lbl.place_configure(relx=new_relx)
+    else: # GPU
+        lbl.config(foreground=lbl_color, text=f"{key} Usage: {val:>5.1f}%")
 
     style.configure(bar._style_name, background=lbl_color)
     bar["value"] = val
     crt_grapher.draw_metric(cvs, history[key], maxv, color=lbl_color)
-    
-    if key == "RAM":
-        ram_info = core.get_ram_info()
-        lbl.config(text=f"RAM used {ram_info['used']} GB / free {ram_info['available']} GB")
-        if overlay_lbl:
-            overlay_lbl.config(text=f"{val:.1f}%", background=lbl_color)
 
 def update_gui():
+    """Main high-frequency GUI update loop."""
     try:
         while not data_queue.empty():
             history = data_queue.get_nowait()
             crt_grapher.frame_count += 3
 
-            # Update CPU, RAM, GPU
-            usage_values = {
-                "CPU": history.get("CPU")[-1] if history.get("CPU") else None, 
-                "RAM": history.get("RAM")[-1] if history.get("RAM") else None, 
-                "GPU": history.get("GPU")[-1] if history.get("GPU") else None
-            }
-
+            # Update primary metrics
             for key in ["CPU", "RAM", "GPU"]:
-                _update_metric_display(key, history, usage_values)
+                _update_metric_display(key, history)
 
-            # Update Disk I/O
-            read_mb = history.get("DISK_read")[-1] if history.get("DISK_read") else 0
-            write_mb = history.get("DISK_write")[-1] if history.get("DISK_write") else 0
+            # Update Disk I/O graphics and labels
+            read_mb = history.get("DISK_read", [0])[-1]
+            write_mb = history.get("DISK_write", [0])[-1]
             crt_grapher.update_dual_io_labels(read_mb, write_mb)
             crt_grapher.draw_dual_io(history["DISK_read"], history["DISK_write"])
             
@@ -246,98 +229,128 @@ def update_gui():
         root.after(REFRESH_GUI_MS, update_gui)
 
 def update_heavy_stats():
-    """SysInfo + Top Processes + Temps (run in a worker thread)."""
+    """Worker thread for less frequent, more intensive stat updates."""
     def worker():
         try:
-            # --- Fetch all data ---
+            # Fetch all data in the background
             cpu_info = core.get_cpu_info()
-            gpu_info = core.get_gpu_info()
+            gpu_info = core.get_gpu_info() or "N/A"
             disk_use = core.get_disk_summary()
-            
             cpu_temp = core.get_cpu_temp()
             gpu_temp = core.get_gpu_temp()
-            #print("temp cvals",cpu_temp)
-            #print("temp gvals",gpu_temp)
             procs = core.get_top_processes(limit=5)
-            header = "PID       USER         VIRT      RES   CPU%   MEM%   NAME"
-            top_text = header + "\n" + "\n".join(procs)
-
             load_avg = core.get_load_average()
             uptime = core.get_uptime()
+            top_text = "PID      USER        VIRT      RES   CPU%   MEM%   NAME\n" + "\n".join(procs)
 
+            # --- Apply updates to the GUI on the main thread ---
             def apply_updates():
-                # --- Update System Info Tab ---
+                # --- Sys Info Tab ---
                 info_labels = widgets["Sys Info"]
-                info_labels["CPU Model"].config(text=f"CPU Model: {cpu_info['model']}")
-                info_labels["Cores"].config(
-                    text=f"{cpu_info['physical_cores']} CORES | {cpu_info['logical_cores']} THREADS"
-                )
+                info_labels["CPU Model"].config(text=f"CPU Model: {cpu_info.get('model', 'N/A')}")
+                cores = cpu_info.get('physical_cores', 'N/A')
+                threads = cpu_info.get('logical_cores', 'N/A')
+                info_labels["Cores"].config(text=f"{cores} CORES | {threads} THREADS")
                 info_labels["GPU"].config(text=f"GPU: {gpu_info}")
                 info_labels["DISK"].config(text=f"DISK USAGE: {disk_use}")
-                info_labels["Net IN"].config(text=f"Net IN: {network_results['in_MB']:.2f} MB/s")
-                info_labels["Net OUT"].config(text=f"Net OUT: {network_results['out_MB']:.2f} MB/s")
-                lat = network_results['latency_ms']
-                info_labels["Latency"].config(
-                    text=f"Latency: {lat:.1f} ms" if lat is not None else "Latency: N/A"
-                )
                 info_labels["Uptime"].config(text=f"Uptime: {uptime}")
 
-                # --- Update CPU Stats Tab ---
+                # --- Network & Latency (from shared global) ---
+                net_in = network_results['in_MB']
+                net_out = network_results['out_MB']
+                lat = network_results['latency_ms']
+                info_labels["Net IN"].config(text=f"Net IN: {net_in:>6.2f} MB/s")
+                info_labels["Net OUT"].config(text=f"Net OUT: {net_out:>6.2f} MB/s")
+                lat_text = f"Latency: {lat:>5.1f} ms" if lat is not None else "Latency:   N/A"
+                info_labels["Latency"].config(text=lat_text)
+                
+                # --- Processing Stats Tab ---
                 cpu_labels = widgets["CPU Stats"]
-                cpu_labels["Info"].config(text=f"CPU Load Avg: {load_avg}  Uptime: {uptime}")
+                cpu_labels["Info"].config(text=f"CPU Load Avg: {load_avg}   Uptime: {uptime}")
                 cpu_labels["Top Processes"].config(text=top_text)
                 
-                # --- Update Temperature Stats Tab ---
-                temp_labels = widgets["Temp Stats"]
-                if cpu_temp is not None:
-                    temp_labels["CPU Temp"].config(text=f"CPU Temperature: {cpu_temp:.2f}°C")
-                else:
-                    temp_labels["CPU Temp"].config(text="CPU Temperature: N/A")
-                
-                if gpu_temp is not None:
-                    temp_labels["GPU Temp"].config(text=f"GPU Temperature: {gpu_temp:.2f}°C")
-                else:
-                    temp_labels["GPU Temp"].config(text="GPU Temperature: N/A")
+                # --- Update Temperature Stats Tab (Safely) ---
+                if "Temp Stats" in widgets:
+                    temp_widgets = widgets["Temp Stats"]
+                    
+                    # Safely update CPU Meter if it exists
+                    if "CPU Meter" in temp_widgets:
+                        if cpu_temp is not None:
+                            temp_widgets["CPU Meter"].configure(amountused=cpu_temp, subtext=f"{cpu_temp:.1f}°C", bootstyle=get_temp_color(cpu_temp))
+                        else:
+                            temp_widgets["CPU Meter"].configure(amountused=0, subtext="N/A", bootstyle="default")
+                    
+                    # Safely update GPU Meter if it exists
+                    if "GPU Meter" in temp_widgets:
+                        if gpu_temp is not None:
+                            temp_widgets["GPU Meter"].configure(amountused=gpu_temp, subtext=f"{gpu_temp:.1f}°C", bootstyle=get_temp_color(gpu_temp))
+                        else:
+                            temp_widgets["GPU Meter"].configure(amountused=0, subtext="N/A", bootstyle="default")
 
             root.after(0, apply_updates)
 
         except Exception as e:
-            print("Heavy stats error:", e)
-
+            print(f"Heavy stats worker error: {e}")
         finally:
             root.after(REFRESH_HEAVY_MS, update_heavy_stats)
 
     threading.Thread(target=worker, daemon=True).start()
 
+def update_network_stats():
+    """Worker thread for network stats."""
+    def worker():
+        global network_results
+        try:
+            net_in, net_out, avg_latency = core.net_usage_latency(
+                interface=NETWORK_INTERFACE,
+                ping_host_addr=PING_HOST,
+                ping_count=PING_COUNT
+            )
+            network_results = {"in_MB": net_in, "out_MB": net_out, "latency_ms": avg_latency}
+        except Exception as e:
+            print(f"Network stats error: {e}")
+        finally:
+            root.after(REFRESH_SLOW_MS, update_network_stats)
+            
+    threading.Thread(target=worker, daemon=True).start()
+
+
 def update_time():
-    """Local time/date every 1000ms (lightweight)."""
+    """Updates the time and date display once per second."""
     date_lbl, time_lbl = widgets["Time & Uptime"]
-    time_lbl.config(text=f"{core.get_local_time()}")
+    time_lbl.config(text=core.get_local_time())
     date_lbl.config(text=f"Date: {core.get_local_date()}")
     root.after(1000, update_time)
 
-# ==== Start everything ====
+# =======================================================
+# ==== Application Start ================================
 def start_app():
+    """Initializes all data fetching threads and GUI update loops."""
     data_fetcher = ThreadedDataFetcher(data_queue, interval=REFRESH_MS / 1000)
     data_fetcher.start()
-    schedule_network_update()
+    update_network_stats()
     update_heavy_stats()
     update_time()
     update_gui()
 
-# Main application entry point
 if __name__ == "__main__":
-    if not os.path.exists("startup_config.txt"):
-        # Run the setup script if the config file doesn't exist
-        print("Running startup setup...")
+    # Run setup script on first launch
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    os.chdir(script_dir)
+    # Get monitor information from config file
+    if not os.path.exists(os.path.join(script_dir, "startup_config.txt")):
+        # Handle the case where the file doesn't exist (e.g., first launch)
         try:
-            # Use sys.executable for better cross-platform compatibility
-            subprocess.run([sys.executable, "startup_set.py"], check=True)
-        except FileNotFoundError:
-            print("Error: startup_set.py not found. Please ensure it's in the same directory.")
-        except subprocess.CalledProcessError:
-            print("Error: The setup script failed to run.")
+            subprocess.run([sys.executable, os.path.join(script_dir, "startupset.py")], check=True)
+            # Exit if the user closes the setup window without saving
+            if not os.path.exists(os.path.join(script_dir, "startup_config.txt")):
+                sys.exit("Setup was not completed. Exiting.")
+        except Exception as e:
+            print(f"Could not run startupset.py: {e}")
+            sys.exit(1)
 
-    # Start the main application loop
+    startup_monitor_index = get_startup_monitor()
+
+    # Start the application with the animated loader
     startup_loader(root, widgets, style, on_complete=start_app)
     root.mainloop()

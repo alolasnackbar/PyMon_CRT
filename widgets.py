@@ -16,13 +16,10 @@ def build_metric_frame(parent, title, maxval=100, graph_height=GRAPH_HEIGHT, sty
 
     overlay_lbl = None
     if title == "RAM":
-        overlay_lbl = tb.Label(f, text="", font=FONT_TITLE, foreground="black", background="black")
+        overlay_lbl = tb.Label(f, text="", font=FONT_TITLE, foreground="black", background=CRT_GREEN)
+        # Place it in the bar; its position will be updated dynamically later.
         overlay_lbl.place(in_=bar, relx=0.5, rely=0.5, anchor="center")
 
     cvs = tb.Canvas(f, height=graph_height, background="black", highlightthickness=0)
     cvs.pack(fill=BOTH, expand=True, padx=4, pady=4)
     return f, lbl, bar, cvs, overlay_lbl
-
-def center_overlay_label(bar, overlay_lbl):
-    if overlay_lbl:
-        overlay_lbl.place_configure(in_=bar, relx=0.06, rely=0.5, anchor="center")
