@@ -341,15 +341,15 @@ if __name__ == "__main__":
     if not os.path.exists(os.path.join(script_dir, "startup_config.txt")):
         # Handle the case where the file doesn't exist (e.g., first launch)
         try:
-            subprocess.run([sys.executable, os.path.join(script_dir, "startupset.py")], check=True)
+            subprocess.run([sys.executable, os.path.join(script_dir, "startup_set.py")], check=True)
             # Exit if the user closes the setup window without saving
             if not os.path.exists(os.path.join(script_dir, "startup_config.txt")):
                 sys.exit("Setup was not completed. Exiting.")
         except Exception as e:
-            print(f"Could not run startupset.py: {e}")
+            print(f"Could not run startup_set.py: {e}")
             sys.exit(1)
 
-    startup_monitor_index = get_startup_monitor()
+    startup_monitor_index = get_startup_monitor() 
 
     # Start the application with the animated loader
     startup_loader(root, widgets, style, on_complete=start_app)
