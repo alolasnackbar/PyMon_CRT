@@ -396,9 +396,22 @@ def get_uptime():
 def get_primary_interface():
     """
     Auto-select the main active interface, ignoring loopback and common virtuals.
+    Returns "WiFi", "Ethernet", or None.
     """
     try:
         stats = psutil.net_io_counters(pernic=True)
+        # Prioritize interfaces based on naming conventions
+        for iface, data in stats.items():
+            low = iface.lower()
+            if low in ("lo", "loopback") or "docker" in low or "veth" in low or "virtual" in low:
+                continue
+            if data.bytes_sent > 0 or data.bytes_recv > 0:
+                if "eth" in low or "lan" in low:
+                    return "Ethernet"
+                elif "wlan" in low or "wifi" in low:
+                    return "WiFi"
+        
+        # Fallback to the first active candidate if no naming convention match
         candidates = []
         for iface, data in stats.items():
             low = iface.lower()
@@ -406,83 +419,124 @@ def get_primary_interface():
                 continue
             if data.bytes_sent > 0 or data.bytes_recv > 0:
                 candidates.append(iface)
-        return candidates[0] if candidates else None
+        
+        if candidates:
+            # Check the first candidate by its name
+            first_iface_low = candidates[0].lower()
+            if "eth" in first_iface_low or "lan" in first_iface_low:
+                return "Ethernet"
+            elif "wlan" in first_iface_low or "wifi" in first_iface_low:
+                return "WiFi"
+            else:
+                # Can't determine type from name
+                return None
+        return None
     except Exception:
         return None
 
 # --- Ping (with timeouts and robust parsing) ---
-def ping_host(host="8.8.8.8", count=3, timeout=1.5):
+def ping_host(host_address, ping_count=3):
     """
-    Ping host and return average latency in ms (float) or None.
-    Works on Windows/macOS/Linux.
+    Pings a host and returns the average latency in milliseconds.
+    
+    Args:
+        host_address (str): The IP address or hostname to ping.
+        ping_count (int): The number of pings to send.
+        
+    Returns:
+        float: The average latency in milliseconds, or None if ping fails.
     """
-    param = "-n" if platform.system().lower() == "windows" else "-c"
     try:
-        output = subprocess.check_output(
-            ["ping", param, str(count), host],
-            universal_newlines=True,
-            stderr=subprocess.DEVNULL,
-            timeout=timeout
+        # Use a cross-platform command
+        command = ['ping', host_address, '-n' if os.name == 'nt' else '-c', str(ping_count)]
+        
+        # Run the command and capture the output
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True
         )
-    except Exception:
+
+        # Parse the output to find the average latency
+        output = result.stdout
+        if os.name == 'nt':  # Windows
+            # Look for "Average = 12ms"
+            match = re.search(r'Average = (\d+)ms', output)
+        else:  # Linux/macOS
+            # Look for "min/avg/max/mdev = 10.123/12.345/14.567/1.234"
+            match = re.search(r'min/avg/max/.+ = [\d.]+/([\d.]+)', output)
+
+        if match:
+            # Return the average latency as a float
+            return float(match.group(1))
+        
+        return None  # No match found
+        
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
+        print(f"Ping failed: {e}")
         return None
 
-    # Try Windows "Average = 12ms"
-    m = re.search(r"Average\s*=\s*(\d+(?:\.\d+)?)\s*ms", output, re.IGNORECASE)
-    if m:
-        return float(m.group(1))
-
-    # Try Linux/macOS "min/avg/max/mdev = a/b/c/d ms"
-    m = re.search(r"=\s*([\d\.]+)/([\d\.]+)/", output)
-    if m:
-        try:
-            return float(m.group(2))
-        except Exception:
-            return None
-
-    # Fallback: last number with 'ms' on line containing avg
-    for line in output.splitlines():
-        if "avg" in line or "Average" in line or "round-trip" in line or "rtt" in line:
-            nums = re.findall(r"[\d\.]+", line)
-            if nums:
-                try:
-                    return float(nums[-1])
-                except Exception:
-                    pass
-    return None
-
-def net_usage_latency(interface=None, ping_host_addr="8.8.8.8", ping_count=3, interval=1):
+def net_usage_latency(interface="Ethernet", ping_host_addr="8.8.8.8", ping_count=3, interval=0.1):
     """
     Return (net_in_MB_per_s, net_out_MB_per_s, avg_latency_ms).
-    Sleeps for 'interval' seconds to sample I/O deltas.
-    Intended for use in a background thread.
+    Samples I/O deltas and measures latency.
     """
+    # Initialize values to default
+    net_in_MB, net_out_MB, avg_latency = 0.0, 0.0, None
+    
     try:
         if interface is None:
             interface = get_primary_interface()
         if interface is None:
             return 0.0, 0.0, None
 
-        pernic1 = psutil.net_io_counters(pernic=True)
-        if interface not in pernic1:
-            return 0.0, 0.0, None
+        # 1. Get Network Usage
+        try:
+            pernic1 = psutil.net_io_counters(pernic=True)
+            if interface not in pernic1:
+                return 0.0, 0.0, None
 
-        bytes_recv1 = pernic1[interface].bytes_recv
-        bytes_sent1 = pernic1[interface].bytes_sent
+            bytes_recv1 = pernic1[interface].bytes_recv
+            bytes_sent1 = pernic1[interface].bytes_sent
 
-        time.sleep(interval)
+            time.sleep(interval)
 
-        pernic2 = psutil.net_io_counters(pernic=True)
-        if interface not in pernic2:
-            return 0.0, 0.0, None
+            pernic2 = psutil.net_io_counters(pernic=True)
+            if interface not in pernic2:
+                # If interface disappears, return what we have
+                return 0.0, 0.0, None
 
-        bytes_recv2 = pernic2[interface].bytes_recv
-        bytes_sent2 = pernic2[interface].bytes_sent
+            bytes_recv2 = pernic2[interface].bytes_recv
+            bytes_sent2 = pernic2[interface].bytes_sent
 
-        net_in_MB = round((bytes_recv2 - bytes_recv1) / 1024 / 1024 / interval, 3)
-        net_out_MB = round((bytes_sent2 - bytes_sent1) / 1024 / 1024 / interval, 3)
+            net_in_MB = round((bytes_recv2 - bytes_recv1) / 1024 / 1024 / interval, 3)
+            net_out_MB = round((bytes_sent2 - bytes_sent1) / 1024 / 1024 / interval, 3)
 
-        avg_latency = ping_host(ping_host_addr, ping_count)
+        except Exception as e:
+            print(f"Network usage measurement failed: {e}")
+            # If network usage fails, we'll return 0.0 for those values but still try to get latency
+            pass
+
+        # 2. Get Latency
+        try:
+            # ping_host must be a valid, accessible function
+            avg_latency = ping_host(ping_host_addr, ping_count)
+            # Print a success message for debugging
+            # if avg_latency is not None:
+            #     print(f"Ping successful, average latency: {avg_latency} ms")
+            # else:
+            #     print("Ping returned None.")
+
+        except Exception as e:
+            print(f"Latency measurement failed: {e}")
+            # avg_latency remains None as initialized
+            pass
+
         return net_in_MB, net_out_MB, avg_latency
-    except Exception:
+        
+    except Exception as e:
+        # A final, broad exception for any other unexpected errors
+        print(f"An unexpected error occurred: {e}")
         return 0.0, 0.0, None

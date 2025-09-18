@@ -29,6 +29,16 @@ except ImportError:
             return type('MockNet', (object,), {'bytes_sent': 1000, 'bytes_recv': 2000})()
     psutil = MockPsutil()
 
+# --- Color Helper Function for Redrawing ---
+def get_usage_color(value):
+    """
+    Determines the color for a usage value (e.g., CPU, GPU, RAM)
+    based on predefined thresholds.
+    """
+    if value is None: return "#00FF00"  # Green
+    if value < 60: return "#00FF00"      # Green
+    elif value < 80: return "#FFFF00"    # Yellow
+    else: return "#FF0000"               # Red
 
 # This class runs in a separate thread to collect data without blocking the GUI.
 class ThreadedDataFetcher(threading.Thread):
@@ -204,3 +214,13 @@ class CRTGrapher:
         self.io_write_lbl.config(text=f"WRITE: {write_mb:.2f} MB/s")
         self.io_read_bar["value"] = min(read_mb, self.max_io)
         self.io_write_bar["value"] = min(write_mb, self.max_io)
+
+    def redraw_all(self, history):
+        """Redraws all canvases with the latest data history."""
+        # Redraw CPU/GPU/RAM graphs
+        if "CPU" in history and self.canvas:
+            self.draw_metric(self.canvas, history["CPU"], 100, color=get_usage_color(history["CPU"][-1]))
+        
+        # Re-draw the IO canvas
+        if "DISK_read" in history and "DISK_write" in history and self.io_canvas:
+            self.draw_dual_io(history["DISK_read"], history["DISK_write"])

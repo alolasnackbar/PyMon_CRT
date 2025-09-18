@@ -62,7 +62,8 @@ Current Patch Notes:
 - New: gpu temps should be crossplatform linux/os amd nvd (not tested)
 - Fix: Improved fullscreen behavior on multi-monitor setups, 
 - Adjusted: fine tuned and optimized for usage
-== unavailable until further notice ===
+
+________  unavailable until further notice __________
 - temp cpu/gpu added, need more research on meters
 - net stats limited
 """

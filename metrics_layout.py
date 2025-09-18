@@ -6,6 +6,10 @@ from widgets import build_metric_frame #center_overlay_label
 
 # ==== Build metrics ====
 def build_metrics(root, style):
+    """
+    Creates and places all the main frames and widgets into the root window using a 
+    data-driven approach with .grid() for a responsive layout.
+    """
     widgets = {}
 
     metric_list = [
@@ -17,7 +21,6 @@ def build_metrics(root, style):
         {"name": "Time & Uptime", "row": 2, "col": 1, "timewidget": True}
     ]
 
-
     for metric in metric_list:
         name = metric["name"]
         row, col = metric["row"], metric["col"]
@@ -27,141 +30,111 @@ def build_metrics(root, style):
         if metric.get("io", False):
             f = tb.Labelframe(root, text=name, bootstyle=FONT_TAB_TITLE_COLOR)
             f.grid(row=row, column=col, columnspan=colspan, sticky="nsew", padx=4, pady=4)
-            root.rowconfigure(row, weight=1)
-            root.columnconfigure(col, weight=1)
+            f.columnconfigure(0, weight=1)
+            f.rowconfigure(4, weight=1) # Make canvas row resizable
 
             io_read_lbl = tb.Label(f, text="READ: ...", anchor="w", font=FONT_TITLE, foreground=CRT_GREEN)
-            io_read_lbl.pack(fill=X, padx=4, pady=(2,0))
-            io_read_bar_style = f"IORead.Horizontal.TProgressbar"
+            io_read_lbl.grid(row=0, column=0, sticky="ew", padx=4, pady=(2,0))
+            
+            io_read_bar_style = "IORead.Horizontal.TProgressbar"
             style.configure(io_read_bar_style, troughcolor="black", background=CRT_GREEN, thickness=PROGRESS_THICKNESS)
             io_read_bar = tb.Progressbar(f, bootstyle="success", maximum=DISK_IO_MAX_MBPS, style=io_read_bar_style)
             io_read_bar._style_name = io_read_bar_style
-            io_read_bar.pack(fill=X, padx=4, pady=(0,2))
+            io_read_bar.grid(row=1, column=0, sticky="ew", padx=4, pady=(0,2))
 
             io_write_lbl = tb.Label(f, text="WRITE: ...", anchor="w", font=FONT_TITLE, foreground="white")
-            io_write_lbl.pack(fill=X, padx=4, pady=(2,0))
-            io_write_bar_style = f"IOWrite.Horizontal.TProgressbar"
+            io_write_lbl.grid(row=2, column=0, sticky="ew", padx=4, pady=(2,0))
+            
+            io_write_bar_style = "IOWrite.Horizontal.TProgressbar"
             style.configure(io_write_bar_style, troughcolor="black", background="white", thickness=PROGRESS_THICKNESS)
             io_write_bar = tb.Progressbar(f, bootstyle="success", maximum=DISK_IO_MAX_MBPS, style=io_write_bar_style)
             io_write_bar._style_name = io_write_bar_style
-            io_write_bar.pack(fill=X, padx=4, pady=(0,2))
+            io_write_bar.grid(row=3, column=0, sticky="ew", padx=4, pady=(0,2))
 
             io_canvas = tb.Canvas(f, height=GRAPH_HEIGHT, background="black", highlightthickness=0)
-            io_canvas.pack(fill=BOTH, expand=True, padx=4, pady=4)
+            io_canvas.grid(row=4, column=0, sticky="nsew", padx=4, pady=4)
             widgets[name] = (io_read_lbl, io_write_lbl, io_read_bar, io_write_bar, io_canvas)
     
         elif metric.get("sysinfo", False):
-            # Notebook widget
             f = tb.Labelframe(root, text=name, bootstyle=FONT_TAB_TITLE_COLOR)
-            f.grid(row=row, column=col, columnspan=colspan, rowspan=rowspan,
-                    sticky="nsew", padx=4, pady=4)
+            f.grid(row=row, column=col, rowspan=rowspan, columnspan=colspan, sticky="nsew", padx=4, pady=4)
+            f.rowconfigure(0, weight=1)
+            f.columnconfigure(0, weight=1)
 
             nb = tb.Notebook(f, bootstyle="dark")
-            nb.pack(fill=BOTH, expand=True, padx=4, pady=4)
+            nb.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
 
-            # --- Tab 1: System Info (basic hardware details) ---
+            # --- Tab 1: System Info ---
             f_sys = tb.Frame(nb)
             nb.add(f_sys, text="System Info")
-
+            f_sys.columnconfigure(0, weight=1)
             info_labels = {}
-            for key in ["CPU Model", "Cores", "Uptime", "GPU", "DISK"]:
-                lbl = tb.Label(f_sys, text=f"{key}: ...", anchor="w",
-                            font=FONT_INFOTXT, foreground=CRT_GREEN)
-                lbl.pack(fill=X, padx=4, pady=1)
+            sys_info_keys = ["CPU Model", "Cores", "Uptime", "GPU", "DISK"]
+            for i, key in enumerate(sys_info_keys):
+                lbl = tb.Label(f_sys, text=f"{key}: ...", anchor="w", font=FONT_INFOTXT, foreground=CRT_GREEN)
+                lbl.grid(row=i, column=0, sticky="ew", padx=4, pady=1)
                 info_labels[key] = lbl
 
-            # --- Tab 2: CPU Stats (load, uptime, top processes) ---
+            # --- Tab 2: CPU Stats ---
             f_cpu = tb.Frame(nb)
             nb.add(f_cpu, text="Processing Stats")
-
+            f_cpu.columnconfigure(0, weight=1)
+            f_cpu.rowconfigure(1, weight=1) # Let process list expand
             cpu_labels = {}
-
-            # One line: CPU usage + uptime
-            cpu_info_lbl = tb.Label(
-                f_cpu,
-                text="CPU: ...  Uptime: ...",
-                anchor="w",
-                font=FONT_INFOTXT,
-                foreground=CRT_GREEN
-            )
-            cpu_info_lbl.pack(fill=X, padx=4, pady=2)
+            cpu_info_lbl = tb.Label(f_cpu, text="CPU: ... Uptime: ...", anchor="w", font=FONT_INFOTXT, foreground=CRT_GREEN)
+            cpu_info_lbl.grid(row=0, column=0, sticky="ew", padx=4, pady=2)
             cpu_labels["Info"] = cpu_info_lbl
-
-            # Top processes (header + 3 rows)
-            cpu_top_lbl = tb.Label(
-                f_cpu,
-                text="PID    USER       VIRT    RES   CPU%  MEM%  NAME",
-                anchor="w",
-                font=("Consolas", 9),  # monospace for alignment
-                foreground=CRT_GREEN,
-                justify="left"
-            )
-            cpu_top_lbl.pack(fill=X, padx=4, pady=4)
+            cpu_top_lbl = tb.Label(f_cpu, text="PID USER VIRT RES CPU% MEM% NAME", anchor="w", font=("Consolas", 9), foreground=CRT_GREEN, justify="left")
+            cpu_top_lbl.grid(row=1, column=0, sticky="new", padx=4, pady=4)
             cpu_labels["Top Processes"] = cpu_top_lbl
 
-            # Register labels into widgets dict
-            widgets["CPU Stats"] = cpu_labels
-
-            # --- Tab 3: Temperature Stats ---
-            f_temp = tb.Frame(nb)
-            nb.add(f_temp, text="Temperature Stats")
-            temp_labels = {}
-            
-            # Label for CPU temperature
-            cpu_temp_lbl = tb.Label(f_temp, text="CPU Temperature: ...", anchor="w",
-                                    font=FONT_INFOTXT, foreground=CRT_GREEN)
-            cpu_temp_lbl.pack(fill=X, padx=4, pady=1)
-            temp_labels["CPU Temp"] = cpu_temp_lbl
-            
-            # Label for GPU temperature
-            gpu_temp_lbl = tb.Label(f_temp, text="GPU Temperature: ...", anchor="w",
-                                    font=FONT_INFOTXT, foreground=CRT_GREEN)
-            gpu_temp_lbl.pack(fill=X, padx=4, pady=1)
-            temp_labels["GPU Temp"] = gpu_temp_lbl
-
-            # --- Tab 4: Network Stats ---
+            # --- Tab 3: Network Stats ---
             f_net = tb.Frame(nb)
             nb.add(f_net, text="Network Stats")
-            net_in_lbl = tb.Label(f_net, text="Net IN: ... MB/s", anchor="w",
-                                font=FONT_INFOTXT, foreground=CRT_GREEN)
-            net_in_lbl.pack(fill=X, padx=4, pady=1)
-            net_out_lbl = tb.Label(f_net, text="Net OUT: ... MB/s", anchor="w",
-                                font=FONT_INFOTXT, foreground=CRT_GREEN)
-            net_out_lbl.pack(fill=X, padx=4, pady=1)
-            latency_lbl = tb.Label(f_net, text="Latency: ... ms", anchor="w",
-                                font=FONT_INFOTXT, foreground=CRT_GREEN)
-            latency_lbl.pack(fill=X, padx=4, pady=1)
+            f_net.columnconfigure(0, weight=1)
+            net_in_lbl = tb.Label(f_net, text="Net Download: ... MB/s", anchor="w", font=FONT_NETTXT, foreground=CRT_GREEN)
+            net_in_lbl.grid(row=0, column=0, sticky="ew", padx=4, pady=1)
+            net_out_lbl = tb.Label(f_net, text="Net Upload: ... MB/s", anchor="w", font=FONT_NETTXT, foreground=CRT_GREEN)
+            net_out_lbl.grid(row=1, column=0, sticky="ew", padx=4, pady=1)
+            latency_lbl = tb.Label(f_net, text="Latency: ... ms", anchor="w", font=FONT_NETTXT, foreground=CRT_GREEN)
+            latency_lbl.grid(row=2, column=0, sticky="ew", padx=4, pady=1)
 
-            # Store widget references
+            # --- Tab 4: Temperature Stats ---
+            f_temp = tb.Frame(nb)
+            nb.add(f_temp, text="Temperature Stats")
+            f_temp.columnconfigure(0, weight=1)
+            temp_labels = {}
+            cpu_temp_lbl = tb.Label(f_temp, text="CPU Temperature: ...", anchor="w", font=FONT_INFOTXT, foreground=CRT_GREEN)
+            cpu_temp_lbl.grid(row=0, column=0, sticky="ew", padx=4, pady=1)
+            temp_labels["CPU Temp"] = cpu_temp_lbl
+            gpu_temp_lbl = tb.Label(f_temp, text="GPU Temperature: ...", anchor="w", font=FONT_INFOTXT, foreground=CRT_GREEN)
+            gpu_temp_lbl.grid(row=1, column=0, sticky="ew", padx=4, pady=1)
+            temp_labels["GPU Temp"] = gpu_temp_lbl
+
+            # --- Store widget references ---
             widgets["Sys Info"] = info_labels
-            widgets["CPU Stats"] = cpu_labels   
-            widgets["Temp Stats"] = temp_labels # Correctly store the new temp labels dictionary
+            widgets["CPU Stats"] = cpu_labels
+            widgets["Temp Stats"] = temp_labels
             info_labels["Net IN"] = net_in_lbl
             info_labels["Net OUT"] = net_out_lbl
             info_labels["Latency"] = latency_lbl
-
-            widgets[name] = info_labels
+            widgets[name] = info_labels # Legacy compatibility
 
         elif metric.get("timewidget", False):
-            # Dedicated Time & Uptime widget
             f = tb.Labelframe(root, text=name, bootstyle=FONT_TAB_TITLE_COLOR)
-            f.grid(row=row, column=col, columnspan=colspan, rowspan=rowspan,
-                sticky="nsew", padx=4, pady=4)
-
+            f.grid(row=row, column=col, rowspan=rowspan, columnspan=colspan, sticky="nsew", padx=4, pady=4)
+            f.columnconfigure(0, weight=1)
+            f.rowconfigure(0, weight=1)
+            f.rowconfigure(1, weight=1)
+            
             time_lbl = tb.Label(f, text="Time: ...", anchor="w", font=FONT_SYSTIME, foreground=CRT_GREEN)
-            time_lbl.pack(fill=X, pady=(1,1))
-
+            time_lbl.grid(row=0, column=0, sticky="nsew", padx=5)
             date_lbl = tb.Label(f, text="Date: ...", anchor="w", font=("Consolas", 15, "bold"), foreground=CRT_GREEN)
-            date_lbl.pack(fill=X, pady=(2,1))
-
-            # uptime_lbl = tb.Label(f, text="Uptime: ...", anchor="w", font=("Consolas", 12, "bold"), foreground=CRT_GREEN)
-            # uptime_lbl.pack(fill=X, pady=(2,1))
-            # Store them
+            date_lbl.grid(row=1, column=0, sticky="nsew", padx=5)
             widgets["Time & Uptime"] = (date_lbl, time_lbl)
 
-
         else:
-            f, lbl, bar, cvs, overlay_lbl = build_metric_frame(root, name, style=style)
+            f, lbl, bar, cvs, overlay_lbl = build_metric_frame(root, name, style=style, maxval=metric["maxval"])
             f.grid(row=row, column=col, sticky="nsew", padx=4, pady=4)
             root.rowconfigure(row, weight=1)
             root.columnconfigure(col, weight=1)
