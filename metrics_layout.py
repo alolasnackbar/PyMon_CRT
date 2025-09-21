@@ -102,19 +102,44 @@ def build_metrics(root, style):
             # --- Tab 4: Temperature Stats ---
             f_temp = tb.Frame(nb)
             nb.add(f_temp, text="Temperature Stats")
-            f_temp.columnconfigure(0, weight=1)
-            temp_labels = {}
-            cpu_temp_lbl = tb.Label(f_temp, text="CPU Temperature: ...", anchor="w", font=FONT_INFOTXT, foreground=CRT_GREEN)
-            cpu_temp_lbl.grid(row=0, column=0, sticky="ew", padx=4, pady=1)
-            temp_labels["CPU Temp"] = cpu_temp_lbl
-            gpu_temp_lbl = tb.Label(f_temp, text="GPU Temperature: ...", anchor="w", font=FONT_INFOTXT, foreground=CRT_GREEN)
-            gpu_temp_lbl.grid(row=1, column=0, sticky="ew", padx=4, pady=1)
-            temp_labels["GPU Temp"] = gpu_temp_lbl
+            f_temp.columnconfigure((0, 1), weight=1) # Configure columns to center meters
+
+            temp_widgets = {} # Use this dict directly
+
+            # --- CPU Temperature Meter ---
+            cpu_meter = tb.Meter(
+                master=f_temp,
+                metersize=120,
+                padding=5,
+                amountused=0,
+                metertype='semi',
+                interactive=False,
+                bootstyle='primary',
+                textleft='CPU',
+                textright="°C",
+            )
+            cpu_meter.grid(row=0, column=0, padx=5, pady=5)
+            temp_widgets["CPU Meter"] = cpu_meter # Use the correct key
+
+            # --- GPU Temperature Meter ---
+            gpu_meter = tb.Meter(
+                master=f_temp,
+                metersize=120,
+                padding=5,
+                amountused=0,
+                metertype='semi',
+                interactive=False,
+                bootstyle='info',
+                textleft='GPU',
+                textright="°C",
+            )
+            gpu_meter.grid(row=0, column=1, padx=5, pady=5)
+            temp_widgets["GPU Meter"] = gpu_meter # Use the correct key
 
             # --- Store widget references ---
             widgets["Sys Info"] = info_labels
             widgets["CPU Stats"] = cpu_labels
-            widgets["Temp Stats"] = temp_labels
+            widgets["Temp Stats"] = temp_widgets
             info_labels["Net IN"] = net_in_lbl
             info_labels["Net OUT"] = net_out_lbl
             info_labels["Latency"] = latency_lbl

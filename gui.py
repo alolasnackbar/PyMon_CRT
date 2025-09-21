@@ -289,18 +289,20 @@ def update_heavy_stats():
                 # --- Temperature Stats Tab ---
                 if "Temp Stats" in widgets:
                     temp_widgets = widgets["Temp Stats"]
-                    if "CPU Meter" in temp_widgets:
-                        color = get_temp_color(cpu_temp)
-                        temp_widgets["CPU Meter"].configure(
-                            amountused=cpu_temp if cpu_temp is not None else 0,
-                            subtext=f"{cpu_temp:.1f}°C" if cpu_temp is not None else "N/A",
-                            bootstyle=color
-                        )
-                    if "GPU Meter" in temp_widgets:
+
+                    if "GPU Meter" in temp_widgets and gpu_temp is not None:
                         color = get_temp_color(gpu_temp)
                         temp_widgets["GPU Meter"].configure(
-                            amountused=gpu_temp if gpu_temp is not None else 0,
-                            subtext=f"{gpu_temp:.1f}°C" if gpu_temp is not None else "N/A",
+                            amountused=gpu_temp,
+                            #subtext=f"{gpu_temp:.1f}°C",
+                            bootstyle=color
+                        )
+
+                    if "CPU Meter" in temp_widgets and cpu_temp is not None:
+                        color = get_temp_color(cpu_temp)
+                        temp_widgets["CPU Meter"].configure(
+                            amountused=cpu_temp,
+                            #subtext=f"{cpu_temp:.1f}°C",
                             bootstyle=color
                         )
 
