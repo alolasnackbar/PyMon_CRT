@@ -152,7 +152,7 @@ def build_metrics(root, style):
             config_widgets = {}
             
             # Create scrollable frame for config content
-            config_canvas = tb.Canvas(f_config,height=100)  # Fixed height for compact display
+            config_canvas = tb.Canvas(f_config, height=100)  # Fixed height for compact display
             config_scrollbar = tb.Scrollbar(f_config, orient="vertical", command=config_canvas.yview)
             scrollable_frame = tb.Frame(config_canvas)
             
@@ -184,10 +184,10 @@ def build_metrics(root, style):
             process_frame.columnconfigure(1, weight=1)
             
             tb.Label(process_frame, text="Count:", font=("Consolas", 8), foreground=CRT_GREEN).grid(row=0, column=0, padx=2, sticky="w")
-            process_slider = tb.Scale(process_frame, from_=0, to=5, orient="horizontal", bootstyle="success", length=80)
+            process_slider = tb.Scale(process_frame, from_=0, to=5, orient="horizontal", bootstyle="success", length=140)
             process_slider.set(5)
             process_slider.grid(row=0, column=1, sticky="ew", padx=2)
-            process_count_lbl = tb.Label(process_frame, text="3", font=("Consolas", 8), foreground=CRT_GREEN, width=2)
+            process_count_lbl = tb.Label(process_frame, text="3", font=("Consolas", 8, "bold"), foreground=CRT_GREEN, width=2)
             process_count_lbl.grid(row=0, column=2, padx=2)
             
             def update_process_count(val):
@@ -206,14 +206,14 @@ def build_metrics(root, style):
             
             cycle_enabled_var = tb.BooleanVar(value=False)
             cycle_check = tb.Checkbutton(cycle_frame, text="ON", variable=cycle_enabled_var, 
-                                       bootstyle="success-round-toggle")
+                                         bootstyle="success-round-toggle")
             cycle_check.grid(row=0, column=0, padx=2, sticky="w")
             
             tb.Label(cycle_frame, text="Delay:", font=("Consolas", 8), foreground=CRT_GREEN).grid(row=1, column=0, padx=2, sticky="w")
-            cycle_slider = tb.Scale(cycle_frame, from_=2, to=30, orient="horizontal", bootstyle="success", length=80)
+            cycle_slider = tb.Scale(cycle_frame, from_=2, to=30, orient="horizontal", bootstyle="success", length=140)
             cycle_slider.set(5)
             cycle_slider.grid(row=1, column=1, sticky="ew", padx=2)
-            cycle_delay_lbl = tb.Label(cycle_frame, text="5s", font=("Consolas", 8), foreground=CRT_GREEN, width=3)
+            cycle_delay_lbl = tb.Label(cycle_frame, text="5s", font=("Consolas", 8, "bold"), foreground=CRT_GREEN, width=3)
             cycle_delay_lbl.grid(row=1, column=2, padx=2)
             
             def update_cycle_delay(val):
@@ -233,22 +233,22 @@ def build_metrics(root, style):
             
             focus_enabled_var = tb.BooleanVar(value=True)
             focus_check = tb.Checkbutton(focus_frame, text="ON", variable=focus_enabled_var, 
-                                       bootstyle="warning-round-toggle")
+                                         bootstyle="warning-round-toggle")
             focus_check.grid(row=0, column=0, columnspan=3, padx=2, sticky="w")
             
             # Compact threshold settings - single row each
             threshold_data = [
-                ("CPU%:", 50, 95, 80, "cpu_threshold", "warning"),
-                ("Temp°C:", 60, 95, 75, "temp_threshold", "danger"),
-                ("Ping ms:", 100, 1000, 200, "latency_threshold", "info")
+                ("CPU%:", 50, 95, 80, "cpu_threshold", "warning", "%"),
+                ("Temp°C:", 60, 95, 75, "temp_threshold", "danger", "°C"),
+                ("Ping ms:", 100, 1000, 200, "latency_threshold", "info", "ms")
             ]
             
-            for i, (label, min_val, max_val, default, key, style) in enumerate(threshold_data, 1):
+            for i, (label, min_val, max_val, default, key, style, suffix) in enumerate(threshold_data, 1):
                 tb.Label(focus_frame, text=label, font=("Consolas", 8), foreground=CRT_GREEN).grid(row=i, column=0, padx=2, sticky="w")
-                slider = tb.Scale(focus_frame, from_=min_val, to=max_val, orient="horizontal", bootstyle=style, length=70)
+                slider = tb.Scale(focus_frame, from_=min_val, to=max_val, orient="horizontal", bootstyle=style, length=140)
                 slider.set(default)
                 slider.grid(row=i, column=1, sticky="ew", padx=1)
-                value_lbl = tb.Label(focus_frame, text=f"{default}", font=("Consolas", 8), foreground=CRT_GREEN, width=4)
+                value_lbl = tb.Label(focus_frame, text=f"{default}{suffix}", font=("Consolas", 8, "bold"), foreground=CRT_GREEN, width=4)
                 value_lbl.grid(row=i, column=2, padx=2)
                 
                 def make_update_func(key, lbl, suffix=""):
@@ -258,7 +258,6 @@ def build_metrics(root, style):
                         config_widgets[key] = value
                     return update_func
                 
-                suffix = "%" if "cpu" in key else "°C" if "temp" in key else "ms"
                 slider.configure(command=make_update_func(key, value_lbl, suffix))
                 config_widgets[key] = default
             
@@ -272,13 +271,13 @@ def build_metrics(root, style):
             # Colorblind mode (compact)
             colorblind_var = tb.BooleanVar(value=False)
             colorblind_check = tb.Checkbutton(bottom_frame, text="Color Blind Mode", 
-                                            variable=colorblind_var, bootstyle="info-round-toggle")
+                                             variable=colorblind_var, bootstyle="info-round-toggle")
             colorblind_check.grid(row=0, column=0, sticky="w", padx=2)
             config_widgets["colorblind_mode"] = colorblind_var
             
             # Compact status
             status_lbl = tb.Label(bottom_frame, text="Ready", 
-                                font=("Consolas", 8), foreground=CRT_GREEN, anchor="e")
+                                 font=("Consolas", 8), foreground=CRT_GREEN, anchor="e")
             status_lbl.grid(row=0, column=1, sticky="ew", padx=2)
             config_widgets["status_label"] = status_lbl
             

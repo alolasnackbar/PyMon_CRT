@@ -319,6 +319,37 @@ def get_gpu_usage():
         return None
     return None
 
+def get_gpu_clock_speed():
+    """
+    Returns the live GPU clock speed from nvidia-smi as a string.
+    Returns "N/A" if nvidia-smi is not available or an error occurs.
+    """
+    # A simplified, reliable check for nvidia-smi
+    nvidia_smi_path = "nvidia-smi"
+    if os.name == 'nt' and not os.path.exists(os.path.join(os.environ.get('ProgramFiles', ''), 'NVIDIA Corporation', 'NVSMI', 'nvidia-smi.exe')):
+        # On Windows, check common install path if not in PATH
+        # This part of the logic is a basic check.
+        # A more robust check might involve more paths or try/except
+        pass
+    else:
+        try:
+            subprocess.run([nvidia_smi_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            return "N/A"
+
+    # Use subprocess.check_output to capture the command's output
+    try:
+        output = subprocess.check_output([nvidia_smi_path, "--query-gpu=clocks.sm", "--format=csv,noheader,nounits"], universal_newlines=True)
+        # The output is a string like "1845" (for a clock speed of 1845 MHz)
+        clock_speed_mhz = output.strip()
+        
+        # Format the output into a more readable string
+        return f"{clock_speed_mhz} MHz"
+
+    except (subprocess.CalledProcessError, FileNotFoundError, IndexError, ValueError) as e:
+        # Handle all potential errors
+        return "N/A"
+
 
 def get_gpu_temp():
     """

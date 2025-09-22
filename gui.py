@@ -26,6 +26,8 @@ current_tab_index = 0
 smart_focus_active = False
 focus_override_time = 0
 FOCUS_OVERRIDE_DURATION = 10000  # 10 seconds in milliseconds
+config_tab_was_manually_selected = False
+MAIN_TABS_COUNT = 4  # Only cycle through first 4 tabs (excluding config)
 
 current_color_scheme = NORMAL_COLORS
 
@@ -66,10 +68,13 @@ def get_color(color_type):
 # ==============================================================================
 # ==== Smart Tab Management
 # ==============================================================================
+# ==============================================================================
+# ==== Smart Tab Management
+# ==============================================================================
 def get_tab_count():
     """Returns the number of tabs in the notebook."""
     if "notebook" in widgets:
-        return len(widgets["notebook"].tabs()) - 1
+        return len(widgets["notebook"].tabs())
     return 0
 
 def get_current_tab():
@@ -80,25 +85,37 @@ def get_current_tab():
 
 def set_current_tab(index):
     """Sets the current tab by index."""
+    global config_tab_was_manually_selected
     if "notebook" in widgets:
         tab_count = get_tab_count()
         if 0 <= index < tab_count:
             widgets["notebook"].select(index)
+            # Track if config tab (index 4) was manually selected
+            if index == 4:  # Config tab
+                config_tab_was_manually_selected = True
+            else:
+                config_tab_was_manually_selected = False
             return True
     return False
 
 def cycle_to_next_tab():
-    """Cycles to the next tab in sequence."""
-    global current_tab_index
-    tab_count = get_tab_count()
-    if tab_count > 0:
-        current_tab_index = (current_tab_index + 1) % tab_count
-        set_current_tab(current_tab_index)
-        update_status(f"Tab {current_tab_index + 1}")
+    """Cycles to the next tab in sequence (only main 4 tabs)."""
+    global current_tab_index, config_tab_was_manually_selected
+    
+    # Don't cycle if user is on config tab and hasn't switched away
+    current_tab = get_current_tab()
+    if current_tab == 4 and config_tab_was_manually_selected:  # Config tab
+        update_status("Staying on config tab")
+        return
+    
+    # Only cycle through main 4 tabs (0-3)
+    current_tab_index = (current_tab_index + 1) % MAIN_TABS_COUNT
+    set_current_tab(current_tab_index)
+    update_status(f"Cycled to tab {current_tab_index + 1}")
 
 def smart_focus_check(cpu_usage=0, cpu_temp=None, gpu_temp=None, latency=None):
-    """Checks if smart focus should activate based on system conditions."""
-    global smart_focus_active, focus_override_time
+    """Checks if smart focus should activate based on system conditions (only main 4 tabs)."""
+    global smart_focus_active, focus_override_time, config_tab_was_manually_selected
     
     if "Config" not in widgets:
         return
@@ -107,6 +124,11 @@ def smart_focus_check(cpu_usage=0, cpu_temp=None, gpu_temp=None, latency=None):
     
     # Check if smart focus is enabled
     if not config.get("focus_enabled", tb.BooleanVar(value=True)).get():
+        return
+    
+    # Don't override if user is on config tab and hasn't switched away
+    current_tab = get_current_tab()
+    if current_tab == 4 and config_tab_was_manually_selected:  # Config tab
         return
     
     # Don't override if we recently had a focus override
@@ -122,7 +144,7 @@ def smart_focus_check(cpu_usage=0, cpu_temp=None, gpu_temp=None, latency=None):
     cpu_threshold = config.get("cpu_threshold", 80)
     if cpu_usage > cpu_threshold:
         target_tab = 1  # Processing Stats tab
-        reason = f"CPU: {cpu_usage:.1f}%"
+        reason = f"High CPU: {cpu_usage:.1f}%"
         focus_triggered = True
     
     # Check temperature thresholds
@@ -135,25 +157,26 @@ def smart_focus_check(cpu_usage=0, cpu_temp=None, gpu_temp=None, latency=None):
         
     if max_temp and max_temp > temp_threshold:
         target_tab = 3  # Temperature Stats tab
-        reason = f"Temp: {max_temp:.1f}°C"
+        reason = f"High temp: {max_temp:.1f}°C"
         focus_triggered = True
     
     # Check network latency threshold
     latency_threshold = config.get("latency_threshold", 200)
     if latency and latency > latency_threshold:
         target_tab = 2  # Network Stats tab
-        reason = f"Ping: {latency:.0f}ms"
+        reason = f"High latency: {latency:.0f}ms"
         focus_triggered = True
     
-    if focus_triggered and get_current_tab() != target_tab:
+    # Only switch if target is within main 4 tabs and different from current
+    if focus_triggered and target_tab < MAIN_TABS_COUNT and get_current_tab() != target_tab:
         set_current_tab(target_tab)
         smart_focus_active = True
         focus_override_time = current_time
         update_status(f"Alert: {reason}")
 
 def auto_cycle_tabs():
-    """Handles automatic tab cycling."""
-    global auto_cycle_timer, last_cycle_time, smart_focus_active
+    """Handles automatic tab cycling (only main 4 tabs)."""
+    global auto_cycle_timer, last_cycle_time, smart_focus_active, config_tab_was_manually_selected
     
     if "Config" not in widgets:
         root.after(5000, auto_cycle_tabs)  # Try again in 5 seconds
@@ -173,7 +196,14 @@ def auto_cycle_tabs():
         root.after(cycle_delay, auto_cycle_tabs)
         return
     
-    # Cycle to next tab
+    # Don't cycle if user is on config tab and hasn't switched away
+    current_tab = get_current_tab()
+    if current_tab == 4 and config_tab_was_manually_selected:  # Config tab
+        cycle_delay = config.get("cycle_delay", 5) * 1000
+        root.after(cycle_delay, auto_cycle_tabs)
+        return
+    
+    # Cycle to next tab (only main 4 tabs)
     cycle_to_next_tab()
     
     # Schedule next cycle
@@ -183,8 +213,8 @@ def auto_cycle_tabs():
 def update_status(message):
     """Updates the status label in the config tab."""
     if "Config" in widgets and "status_label" in widgets["Config"]:
-        # Truncate long messages to fit compact display
-        max_length = 25
+        # Allow longer messages for better readability in adaptive layout
+        max_length = 35
         if len(message) > max_length:
             message = message[:max_length-3] + "..."
         widgets["Config"]["status_label"].config(text=message)
@@ -384,7 +414,8 @@ def _update_metric_display(key, history):
             overlay_lbl.config(text=display_text, background=lbl_color, foreground="black")
             overlay_lbl.place_configure(relx=new_relx)
     else: # GPU
-        lbl.config(foreground=lbl_color, text=f"{key} Usage: {val:>5.1f}%")
+        gpu_clockspeed = core.get_gpu_clock_speed()
+        lbl.config(foreground=lbl_color, text=f"{key} Usage: {val:>5.1f}%   CLOCK Speed: {gpu_clockspeed}")
 
     style.configure(bar._style_name, background=lbl_color)
     bar["value"] = val
@@ -432,6 +463,7 @@ def update_heavy_stats():
             disk_use = core.get_disk_summary()
             cpu_temp = core.get_cpu_temp()
             gpu_temp = core.get_gpu_temp()
+            gpu_clockspeed = core.get_gpu_clock_speed()
             procs = core.get_top_processes(limit=process_limit)
             load_avg = core.get_load_average()
             uptime = core.get_uptime()
@@ -444,7 +476,7 @@ def update_heavy_stats():
                 cores = cpu_info.get('physical_cores', 'N/A')
                 threads = cpu_info.get('logical_cores', 'N/A')
                 info_labels["Cores"].config(text=f"{cores} CORES | {threads} THREADS")
-                info_labels["GPU"].config(text=f"GPU: {gpu_info}")
+                info_labels["GPU"].config(text=f"GPU: {gpu_info} | {gpu_clockspeed}")
                 info_labels["DISK"].config(text=f"DISK USAGE: {disk_use}")
                 info_labels["Uptime"].config(text=f"Uptime: {uptime}")
 
