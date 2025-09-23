@@ -1,3 +1,4 @@
+# gui.py
 import ttkbootstrap as tb
 from ttkbootstrap.constants import *
 import threading
@@ -34,16 +35,16 @@ last_cycle_time = 0
 current_tab_index = 0
 smart_focus_active = False
 focus_override_time = 0
-FOCUS_OVERRIDE_DURATION = 10000  # 10 seconds in milliseconds
+FOCUS_OVERRIDE_DURATION = 10000 # 10 seconds in milliseconds
 config_tab_was_manually_selected = False
-MAIN_TABS_COUNT = 4  # Only cycle through first 4 tabs (excluding config)
+MAIN_TABS_COUNT = 4 # Only cycle through first 4 tabs (excluding config)
 
 # Color schemes for color blind mode
 COLORBLIND_COLORS = {
-    'success': '#0173B2',   # Blue
-    'warning': '#DE8F05',   # Orange  
-    'danger': '#CC78BC',    # Pink
-    'info': '#029E73'       # Teal
+    'success': '#0173B2',  # Blue
+    'warning': '#DE8F05', # Orange  
+    'danger': '#CC78BC', # Pink
+    'info': '#029E73' # Teal
 }
 
 NORMAL_COLORS = {
@@ -62,7 +63,7 @@ def get_startup_monitor():
         with open("startup_config.txt", "r") as f:
             return int(f.read().strip())
     except (FileNotFoundError, ValueError):
-        return 0  # Default to current/primary monitor
+        return 0 # Default to current/primary monitor
 
 def open_startup_settings():
     """Closes the current GUI and re-runs the startup settings script."""
@@ -112,7 +113,7 @@ def set_current_tab(index):
         if 0 <= index < tab_count:
             widgets["notebook"].select(index)
             # Track if config tab (index 4) was manually selected
-            if index == 4:  # Config tab
+            if index == 4: # Config tab
                 config_tab_was_manually_selected = True
             else:
                 config_tab_was_manually_selected = False
@@ -125,7 +126,7 @@ def cycle_to_next_tab():
     
     # Don't cycle if user is on config tab and hasn't switched away
     current_tab = get_current_tab()
-    if current_tab == 4 and config_tab_was_manually_selected:  # Config tab
+    if current_tab == 4 and config_tab_was_manually_selected: # Config tab
         update_status("Staying on config tab")
         return
     
@@ -149,7 +150,7 @@ def smart_focus_check(cpu_usage=0, cpu_temp=None, gpu_temp=None, latency=None):
     
     # Don't override if user is on config tab and hasn't switched away
     current_tab = get_current_tab()
-    if current_tab == 4 and config_tab_was_manually_selected:  # Config tab
+    if current_tab == 4 and config_tab_was_manually_selected: # Config tab
         return
     
     # Don't override if we recently had a focus override
@@ -158,13 +159,13 @@ def smart_focus_check(cpu_usage=0, cpu_temp=None, gpu_temp=None, latency=None):
         return
     
     focus_triggered = False
-    target_tab = 0  # Default to System Info
+    target_tab = 0 # Default to System Info
     reason = ""
     
     # Check CPU usage threshold
     cpu_threshold = config.get("cpu_threshold", 80)
     if cpu_usage > cpu_threshold:
-        target_tab = 1  # Processing Stats tab
+        target_tab = 1 # Processing Stats tab
         reason = f"High CPU: {cpu_usage:.1f}%"
         focus_triggered = True
     
@@ -177,14 +178,14 @@ def smart_focus_check(cpu_usage=0, cpu_temp=None, gpu_temp=None, latency=None):
         max_temp = gpu_temp
         
     if max_temp and max_temp > temp_threshold:
-        target_tab = 3  # Temperature Stats tab
+        target_tab = 3 # Temperature Stats tab
         reason = f"High temp: {max_temp:.1f}°C"
         focus_triggered = True
     
     # Check network latency threshold
     latency_threshold = config.get("latency_threshold", 200)
     if latency and latency > latency_threshold:
-        target_tab = 2  # Network Stats tab
+        target_tab = 2 # Network Stats tab
         reason = f"High latency: {latency:.0f}ms"
         focus_triggered = True
     
@@ -200,26 +201,26 @@ def auto_cycle_tabs():
     global auto_cycle_timer, last_cycle_time, smart_focus_active, config_tab_was_manually_selected
     
     if "Config" not in widgets:
-        root.after(5000, auto_cycle_tabs)  # Try again in 5 seconds
+        root.after(5000, auto_cycle_tabs) # Try again in 5 seconds
         return
     
     config = widgets["Config"]
     
     # Check if auto-cycling is enabled
     if not config.get("cycle_enabled", tb.BooleanVar(value=False)).get():
-        root.after(1000, auto_cycle_tabs)  # Check again in 1 second
+        root.after(1000, auto_cycle_tabs) # Check again in 1 second
         return
     
     # Don't cycle if smart focus is active
     if smart_focus_active:
-        smart_focus_active = False  # Reset after one cycle
+        smart_focus_active = False # Reset after one cycle
         cycle_delay = config.get("cycle_delay", 5) * 1000
         root.after(cycle_delay, auto_cycle_tabs)
         return
     
     # Don't cycle if user is on config tab and hasn't switched away
     current_tab = get_current_tab()
-    if current_tab == 4 and config_tab_was_manually_selected:  # Config tab
+    if current_tab == 4 and config_tab_was_manually_selected: # Config tab
         cycle_delay = config.get("cycle_delay", 5) * 1000
         root.after(cycle_delay, auto_cycle_tabs)
         return
@@ -265,11 +266,7 @@ try:
 except Exception:
     root.geometry("960x600")
 
-# --- Configure Root Grid Weights for Resizing ---
-for i in range(3):
-    root.rowconfigure(i, weight=1)
-for i in range(2):
-    root.columnconfigure(i, weight=1)
+# --- CONFIGURE ROOT GRID IS MOVED TO THE START_APP FUNCTION ---
 
 style = tb.Style()
 
@@ -296,28 +293,7 @@ help_menu.add_command(label="WatDoing (Help)", command=lambda: print("Help click
 # ==============================================================================
 # ==== Build Widgets & Graphics
 # ==============================================================================
-widgets = build_metrics(root, style)
-
-disk_io_widgets = widgets["Disk I/O"]
-crt_grapher = CRTGrapher(
-    canvas=widgets["CPU"][2],
-    io_canvas=disk_io_widgets[4],
-    max_io=DISK_IO_MAX_MBPS,
-    style=style,
-    io_read_bar=disk_io_widgets[2],
-    io_write_bar=disk_io_widgets[3],
-    io_read_lbl=disk_io_widgets[0],
-    io_write_lbl=disk_io_widgets[1]
-)
-
-# Set up temperature CRT components
-if "Temp Stats" in widgets:
-    temp_widgets = widgets["Temp Stats"]
-    crt_grapher.set_temp_components(
-        temp_canvas=temp_widgets.get("Canvas"),
-        temp_cpu_lbl=temp_widgets.get("CPU_Label"),
-        temp_gpu_lbl=temp_widgets.get("GPU_Label")
-    )
+# Widgets will be built by start_app()
 
 # Store latest history data to enable redrawing on resize
 latest_history = {}
@@ -434,7 +410,7 @@ def _update_metric_display(key, history):
     if key == "CPU":
         freq_tuple = core.get_cpu_freq()
         freq_text = f"{freq_tuple[0]:>4.2f} GHz" if freq_tuple and freq_tuple[0] else " N/A "
-        lbl.config(foreground=lbl_color, text=f"CPU Usage: {val:>5.1f}%   CPU Speed: {freq_text}")
+        lbl.config(foreground=lbl_color, text=f"CPU Usage: {val:>5.1f}%   CPU Speed: {freq_text}")
     elif key == "RAM":
         ram_info = core.get_ram_info()
         used = ram_info.get('used', 0)
@@ -446,8 +422,7 @@ def _update_metric_display(key, history):
             overlay_lbl.config(text=display_text, background=lbl_color, foreground="black")
             overlay_lbl.place_configure(relx=new_relx)
     else: # GPU
-        gpu_clocks = core.get_gpu_clock_speed
-        lbl.config(foreground=lbl_color, text=f"{key} Usage: {val:>5.1f}% | {gpu_clocks} Mhz")
+        lbl.config(foreground=lbl_color, text=f"{key} Usage: {val:>5.1f}%")
 
     style.configure(bar._style_name, background=lbl_color)
     bar["value"] = val
@@ -500,7 +475,7 @@ def update_heavy_stats():
     def worker():
         try:
             # Get process count from config
-            process_limit = 5  # Default
+            process_limit = 5 # Default
             if "Config" in widgets:
                 process_limit = widgets["Config"].get("process_count", 5)
             
@@ -510,11 +485,10 @@ def update_heavy_stats():
             disk_use = core.get_disk_summary()
             cpu_temp = core.get_cpu_temp()
             gpu_temp = core.get_gpu_temp()
-            gpu_clocks = core.get_gpu_clock_speed()
             procs = core.get_top_processes(limit=process_limit)
             load_avg = core.get_load_average()
             uptime = core.get_uptime()
-            top_text = "PID      USER          VIRT      RES   CPU%   MEM%   NAME\n" + "\n".join(procs)
+            top_text = "PID      USER          VIRT      RES   CPU%   MEM%   NAME\n" + "\n".join(procs)
 
             def apply_updates():
                 # --- Sys Info Tab ---
@@ -523,7 +497,7 @@ def update_heavy_stats():
                 cores = cpu_info.get('physical_cores', 'N/A')
                 threads = cpu_info.get('logical_cores', 'N/A')
                 info_labels["Cores"].config(text=f"{cores} CORES | {threads} THREADS")
-                info_labels["GPU"].config(text=f"GPU: {gpu_info} | {gpu_clocks} Mhz")
+                info_labels["GPU"].config(text=f"GPU: {gpu_info}")
                 info_labels["DISK"].config(text=f"DISK USAGE: {disk_use}")
                 info_labels["Uptime"].config(text=f"Uptime: {uptime}")
 
@@ -532,13 +506,13 @@ def update_heavy_stats():
                 net_out = network_results['out_MB']
                 lat = network_results['latency_ms']
                 info_labels["Net IN"].config(text=f"Net Download:{net_in:>6.2f} MB/s", foreground=get_net_color(net_in))
-                info_labels["Net OUT"].config(text=f"Net Upload:  {net_out:>6.2f} MB/s", foreground=get_net_color(net_out))
-                lat_text = f"Latency: {lat:>5.1f} ms" if lat is not None else "Latency:     N/A"
+                info_labels["Net OUT"].config(text=f"Net Upload:  {net_out:>6.2f} MB/s", foreground=get_net_color(net_out))
+                lat_text = f"Latency: {lat:>5.1f} ms" if lat is not None else "Latency:     N/A"
                 info_labels["Latency"].config(text=lat_text, foreground=get_latency_color(lat))
                 
                 # --- Processing Stats Tab ---
                 cpu_labels = widgets["CPU Stats"]
-                cpu_labels["Info"].config(text=f"CPU Load Avg: {load_avg}   Uptime: {uptime}")
+                cpu_labels["Info"].config(text=f"CPU Load Avg: {load_avg}   Uptime: {uptime}")
                 cpu_labels["Top Processes"].config(text=top_text)
                 
                 # --- Temperature Stats Tab ---
@@ -613,6 +587,43 @@ def update_time():
 # ==== Application Start
 # ==============================================================================
 def start_app():
+    global widgets, crt_grapher
+
+    # Crucial step: Clear all widgets from the root window
+    # that may have been placed by the startup_loader.
+    for widget in root.winfo_children():
+        widget.destroy()
+
+    # Now, configure the grid weights for the main layout
+    for i in range(3):
+        root.rowconfigure(i, weight=1)
+    for i in range(2):
+        root.columnconfigure(i, weight=1)
+
+    # Re-build widgets after grid is configured
+    widgets = build_metrics(root, style)
+    
+    disk_io_widgets = widgets["Disk I/O"]
+    crt_grapher = CRTGrapher(
+        canvas=widgets["CPU"][2],
+        io_canvas=disk_io_widgets[4],
+        max_io=DISK_IO_MAX_MBPS,
+        style=style,
+        io_read_bar=disk_io_widgets[2],
+        io_write_bar=disk_io_widgets[3],
+        io_read_lbl=disk_io_widgets[0],
+        io_write_lbl=disk_io_widgets[1]
+    )
+    
+    # Set up temperature CRT components
+    if "Temp Stats" in widgets:
+        temp_widgets = widgets["Temp Stats"]
+        crt_grapher.set_temp_components(
+            temp_canvas=temp_widgets.get("Canvas"),
+            temp_cpu_lbl=temp_widgets.get("CPU_Label"),
+            temp_gpu_lbl=temp_widgets.get("GPU_Label")
+        )
+
     data_fetcher = ThreadedDataFetcher(data_queue, interval=REFRESH_MS / 1000)
     data_fetcher.start()
     update_network_stats()

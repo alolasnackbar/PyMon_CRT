@@ -105,186 +105,147 @@ def build_metrics(root, style):
             # --- Tab 4: Temperature Stats ---
             f_temp = tb.Frame(nb)
             nb.add(f_temp, text="Temperature Stats")
-            f_temp.columnconfigure((0, 1), weight=1) # Configure columns to center meters
+            f_temp.columnconfigure(0, weight=1)
+            f_temp.rowconfigure(1, weight=1)  # Make canvas row resizable
 
-            temp_widgets = {} # Use this dict directly
+            temp_widgets = {}
 
-            # --- CPU Temperature Meter ---
-            cpu_meter = tb.Meter(
-                master=f_temp,
-                metersize=120,
-                padding=5,
-                amountused=0,
-                metertype='semi',
-                stripethickness=3,
-                interactive=False,
-                bootstyle='success',
-                textleft='CPU',
-                textright="°C",
-                subtextfont="consolas",
+            # Combined temperature label (CPU + GPU)
+            cpu_gpu_line = tb.Text(
+                f_temp,
+                height=0.5,
+                font=FONT_TITLE,
+                background="black",
+                relief="flat",
+                highlightthickness=0
             )
-            cpu_meter.grid(row=0, column=0, padx=5, pady=5)
-            temp_widgets["CPU Meter"] = cpu_meter # Use the correct key
+            cpu_gpu_line.grid(row=0, column=0, sticky="ew", padx=4, pady=(4, 0))
+            temp_widgets["Temp_Label"] = cpu_gpu_line
 
-            # --- GPU Temperature Meter ---
-            gpu_meter = tb.Meter(
-                master=f_temp,
-                metersize=120,
-                padding=5,
-                amountused=0,
-                metertype='semi',
-                stripethickness=3,
-                interactive=False,
-                bootstyle='success',
-                textleft='GPU',
-                textright="°C",
-                subtextfont="consolas",
-            )
-            gpu_meter.grid(row=0, column=1, padx=5, pady=5)
-            temp_widgets["GPU Meter"] = gpu_meter # Use the correct key
 
-            # --- Tab 5: Configuration ---
+            # CRT Temperature Canvas (similar to disk I/O canvas)
+            temp_canvas = tb.Canvas(f_temp, height=GRAPH_HEIGHT, background="black", highlightthickness=0)
+            temp_canvas.grid(row=1, column=0, sticky="nsew", padx=4, pady=4)
+            temp_widgets["Canvas"] = temp_canvas
+
+            # --- Tab 4: Config (Compact, left-aligned, avoids extra width) ---
             f_config = tb.Frame(nb)
             nb.add(f_config, text="Config")
-            f_config.columnconfigure((0, 1), weight=1)
+            f_config.columnconfigure(0, weight=1)
             f_config.rowconfigure(0, weight=1)
-            
+
             config_widgets = {}
-            
-            # Create scrollable frame for config content
-            config_canvas = tb.Canvas(f_config, height=100)  # Fixed height for compact display
-            config_scrollbar = tb.Scrollbar(f_config, orient="vertical", command=config_canvas.yview)
-            scrollable_frame = tb.Frame(config_canvas)
-            
-            scrollable_frame.bind(
-                "<Configure>",
-                lambda e: config_canvas.configure(scrollregion=config_canvas.bbox("all"))
-            )
-            
-            config_canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-            config_canvas.configure(yscrollcommand=config_scrollbar.set)
-            
-            config_canvas.grid(row=0, column=0, columnspan=2, sticky="nsew", padx=2, pady=2)
-            config_scrollbar.grid(row=0, column=2, sticky="ns", pady=2)
-            
-            # Make scrollable_frame use full width
-            scrollable_frame.columnconfigure(0, weight=1)
-            scrollable_frame.columnconfigure(1, weight=1)
-            
-            # Compact two-column layout
-            col1 = tb.Frame(scrollable_frame)
-            col1.grid(row=0, column=0, sticky="nsew", padx=2)
-            col2 = tb.Frame(scrollable_frame)
-            col2.grid(row=0, column=1, sticky="nsew", padx=2)
-            
-            # Column 1: Processing & Auto-cycling
-            # Process count (ultra compact)
-            process_frame = tb.Labelframe(col1, text="Processing", bootstyle="info")
-            process_frame.grid(row=0, column=0, sticky="ew", padx=1, pady=1)
-            process_frame.columnconfigure(1, weight=1)
-            
-            tb.Label(process_frame, text="Count:", font=("Consolas", 8), foreground=CRT_GREEN).grid(row=0, column=0, padx=2, sticky="w")
-            process_slider = tb.Scale(process_frame, from_=0, to=5, orient="horizontal", bootstyle="success", length=140)
+
+            # Main container
+            main_container = tb.Frame(f_config)
+            main_container.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
+            main_container.columnconfigure((0, 1), weight=0)  # Do NOT expand horizontally
+            main_container.rowconfigure((0, 1, 2, 3, 4), weight=1)
+
+            # --- Column 1: Processing & Auto-cycling ---
+            process_frame = tb.Labelframe(main_container, text="Processing Display", bootstyle="info")
+            process_frame.grid(row=0, column=0, sticky="nw", padx=2, pady=1)  # stick to top-left
+            process_frame.columnconfigure(1, weight=0)
+
+            tb.Label(process_frame, text="Process count:", font=("Consolas", 10), foreground=CRT_GREEN).grid(row=0, column=0, padx=2, pady=1, sticky="w")
+            process_slider = tb.Scale(process_frame, from_=3, to=5, orient="horizontal", bootstyle="success", length=100)
             process_slider.set(5)
-            process_slider.grid(row=0, column=1, sticky="ew", padx=2)
-            process_count_lbl = tb.Label(process_frame, text="3", font=("Consolas", 8, "bold"), foreground=CRT_GREEN, width=2)
-            process_count_lbl.grid(row=0, column=2, padx=2)
-            
+            process_slider.grid(row=0, column=1, padx=2, pady=1)
+            process_count_lbl = tb.Label(process_frame, text="5", font=("Consolas", 11, "bold"), foreground=CRT_GREEN, width=3)
+            process_count_lbl.grid(row=0, column=2, padx=2, pady=1)
+
             def update_process_count(val):
                 count = int(float(val))
                 process_count_lbl.config(text=str(count))
                 config_widgets["process_count"] = count
-            
+
             process_slider.configure(command=update_process_count)
             config_widgets["process_count"] = 5
             config_widgets["process_slider"] = process_slider
-            
-            # Auto-cycling (compact)
-            cycle_frame = tb.Labelframe(col1, text="Auto Cycle", bootstyle="success")
-            cycle_frame.grid(row=1, column=0, sticky="ew", padx=1, pady=1)
-            cycle_frame.columnconfigure(1, weight=1)
-            
+
+            # Auto-cycling
+            cycle_frame = tb.Labelframe(main_container, text="Auto Tab Cycling", bootstyle="success")
+            cycle_frame.grid(row=1, column=0, sticky="nw", padx=2, pady=1)
+            cycle_frame.columnconfigure(1, weight=0)
+
             cycle_enabled_var = tb.BooleanVar(value=False)
-            cycle_check = tb.Checkbutton(cycle_frame, text="ON", variable=cycle_enabled_var, 
-                                         bootstyle="success-round-toggle")
-            cycle_check.grid(row=0, column=0, padx=2, sticky="w")
-            
-            tb.Label(cycle_frame, text="Delay:", font=("Consolas", 8), foreground=CRT_GREEN).grid(row=1, column=0, padx=2, sticky="w")
-            cycle_slider = tb.Scale(cycle_frame, from_=2, to=30, orient="horizontal", bootstyle="success", length=140)
+            cycle_check = tb.Checkbutton(cycle_frame, text="Enable cycling (main 4 tabs only)", variable=cycle_enabled_var, bootstyle="success-round-toggle")
+            cycle_check.grid(row=0, column=0, columnspan=3, padx=2, pady=1, sticky="w")
+
+            tb.Label(cycle_frame, text="Cycle delay:", font=("Consolas", 10), foreground=CRT_GREEN).grid(row=1, column=0, padx=2, pady=1, sticky="w")
+            cycle_slider = tb.Scale(cycle_frame, from_=2, to=30, orient="horizontal", bootstyle="success", length=100)
             cycle_slider.set(5)
-            cycle_slider.grid(row=1, column=1, sticky="ew", padx=2)
-            cycle_delay_lbl = tb.Label(cycle_frame, text="5s", font=("Consolas", 8, "bold"), foreground=CRT_GREEN, width=3)
-            cycle_delay_lbl.grid(row=1, column=2, padx=2)
-            
+            cycle_slider.grid(row=1, column=1, padx=2, pady=1)
+            cycle_delay_lbl = tb.Label(cycle_frame, text="5 sec", font=("Consolas", 10, "bold"), foreground=CRT_GREEN, width=5)
+            cycle_delay_lbl.grid(row=1, column=2, padx=2, pady=1)
+
             def update_cycle_delay(val):
                 delay = int(float(val))
-                cycle_delay_lbl.config(text=f"{delay}s")
+                cycle_delay_lbl.config(text=f"{delay} sec")
                 config_widgets["cycle_delay"] = delay
-            
+
             cycle_slider.configure(command=update_cycle_delay)
             config_widgets["cycle_enabled"] = cycle_enabled_var
             config_widgets["cycle_delay"] = 5
-            
-            # Column 2: Smart Focus & Accessibility
-            # Smart focus (ultra compact)
-            focus_frame = tb.Labelframe(col2, text="Smart Focus", bootstyle="warning")
-            focus_frame.grid(row=0, column=0, sticky="ew", padx=1, pady=1)
-            focus_frame.columnconfigure(1, weight=1)
-            
+
+            # --- Column 2: Smart Focus ---
+            focus_frame = tb.Labelframe(main_container, text="Smart Auto-Focus", bootstyle="warning")
+            focus_frame.grid(row=0, column=1, rowspan=2, sticky="nw", padx=2, pady=1)
+            focus_frame.columnconfigure(1, weight=0)
+            focus_frame.rowconfigure((1, 2, 3, 4), weight=1)
+
             focus_enabled_var = tb.BooleanVar(value=True)
-            focus_check = tb.Checkbutton(focus_frame, text="ON", variable=focus_enabled_var, 
-                                         bootstyle="warning-round-toggle")
-            focus_check.grid(row=0, column=0, columnspan=3, padx=2, sticky="w")
-            
-            # Compact threshold settings - single row each
+            focus_check = tb.Checkbutton(focus_frame, text="Enable smart focus (main 4 tabs)", variable=focus_enabled_var, bootstyle="warning-round-toggle")
+            focus_check.grid(row=0, column=0, columnspan=3, padx=2, pady=1, sticky="w")
+
+            # Threshold sliders
             threshold_data = [
-                ("CPU%:", 50, 95, 80, "cpu_threshold", "warning", "%"),
-                ("Temp°C:", 60, 95, 75, "temp_threshold", "danger", "°C"),
-                ("Ping ms:", 100, 1000, 200, "latency_threshold", "info", "ms")
+                ("CPU Usage (%):", 50, 95, 80, "cpu_threshold", "warning"),
+                ("Temperature (°C):", 60, 95, 75, "temp_threshold", "danger"),
+                ("Network Ping (ms):", 100, 1000, 200, "latency_threshold", "info")
             ]
-            
-            for i, (label, min_val, max_val, default, key, style, suffix) in enumerate(threshold_data, 1):
-                tb.Label(focus_frame, text=label, font=("Consolas", 8), foreground=CRT_GREEN).grid(row=i, column=0, padx=2, sticky="w")
-                slider = tb.Scale(focus_frame, from_=min_val, to=max_val, orient="horizontal", bootstyle=style, length=140)
+
+            for i, (label, min_val, max_val, default, key, style) in enumerate(threshold_data, 1):
+                tb.Label(focus_frame, text=label, font=("Consolas", 10), foreground=CRT_GREEN).grid(row=i, column=0, padx=2, pady=1, sticky="w")
+                slider = tb.Scale(focus_frame, from_=min_val, to=max_val, orient="horizontal", bootstyle=style, length=100)
                 slider.set(default)
-                slider.grid(row=i, column=1, sticky="ew", padx=1)
-                value_lbl = tb.Label(focus_frame, text=f"{default}{suffix}", font=("Consolas", 8, "bold"), foreground=CRT_GREEN, width=4)
-                value_lbl.grid(row=i, column=2, padx=2)
-                
+                slider.grid(row=i, column=1, padx=2, pady=1)
+                value_lbl = tb.Label(focus_frame, text=f"{default}", font=("Consolas", 10, "bold"), foreground=CRT_GREEN, width=5)
+                value_lbl.grid(row=i, column=2, padx=2, pady=1)
+
                 def make_update_func(key, lbl, suffix=""):
                     def update_func(val):
                         value = int(float(val))
                         lbl.config(text=f"{value}{suffix}")
                         config_widgets[key] = value
                     return update_func
-                
+
+                suffix = "%" if "cpu" in key else "°C" if "temp" in key else "ms"
                 slider.configure(command=make_update_func(key, value_lbl, suffix))
                 config_widgets[key] = default
-            
+
             config_widgets["focus_enabled"] = focus_enabled_var
-            
-            # Accessibility & Status (bottom row, spans both columns)
-            bottom_frame = tb.Frame(scrollable_frame)
-            bottom_frame.grid(row=1, column=0, columnspan=2, sticky="ew", pady=2)
-            bottom_frame.columnconfigure((0, 1), weight=1)
-            
-            # Colorblind mode (compact)
+
+            # --- Bottom row: Accessibility & Status ---
+            bottom_row = tb.Frame(main_container)
+            bottom_row.grid(row=2, column=0, columnspan=2, sticky="nw", padx=2, pady=1)
+            bottom_row.columnconfigure((0, 1), weight=0)
+
             colorblind_var = tb.BooleanVar(value=False)
-            colorblind_check = tb.Checkbutton(bottom_frame, text="Color Blind Mode", 
-                                             variable=colorblind_var, bootstyle="info-round-toggle")
-            colorblind_check.grid(row=0, column=0, sticky="w", padx=2)
+            colorblind_check = tb.Checkbutton(bottom_row, text="Color Blind Friendly Mode", variable=colorblind_var, bootstyle="info-round-toggle")
+            colorblind_check.grid(row=0, column=0, sticky="w", padx=2, pady=1)
             config_widgets["colorblind_mode"] = colorblind_var
-            
-            # Compact status
-            status_lbl = tb.Label(bottom_frame, text="Ready", 
-                                 font=("Consolas", 8), foreground=CRT_GREEN, anchor="e")
-            status_lbl.grid(row=0, column=1, sticky="ew", padx=2)
+
+            status_frame = tb.Frame(bottom_row)
+            status_frame.grid(row=0, column=1, sticky="nw", padx=2, pady=1)
+            status_frame.columnconfigure(0, weight=0)
+            tb.Label(status_frame, text="Status:", font=("Consolas", 10), foreground=CRT_GREEN, anchor="e").grid(row=0, column=0, sticky="e", padx=(0, 2))
+            status_lbl = tb.Label(status_frame, text="Ready", font=("Consolas", 10, "bold"), foreground=CRT_GREEN, anchor="w", bootstyle="inverse-success")
+            status_lbl.grid(row=0, column=1, sticky="w", padx=2)
             config_widgets["status_label"] = status_lbl
-            
-            # Bind mouse wheel to canvas for scrolling
-            def _on_mousewheel(event):
-                config_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
-            config_canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
+
+
 
             # --- Store widget references ---
             widgets["Sys Info"] = info_labels

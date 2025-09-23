@@ -40,6 +40,16 @@ def get_usage_color(value):
     elif value < 80: return "#FFFF00"    # Yellow
     else: return "#FF0000"               # Red
 
+def get_temp_color_crt(value):
+    """
+    Determines the color for temperature values for CRT display.
+    """
+    if value is None: return CRT_GREEN
+    if value < 50: return CRT_GREEN      # Green - cool
+    elif value < 70: return "#FFFF00"    # Yellow - warm
+    elif value < 85: return "#FF8800"    # Orange - hot
+    else: return "#FF0000"               # Red - critical
+
 # This class runs in a separate thread to collect data without blocking the GUI.
 class ThreadedDataFetcher(threading.Thread):
     def __init__(self, data_queue, interval=1.0):
@@ -47,7 +57,12 @@ class ThreadedDataFetcher(threading.Thread):
         self.data_queue = data_queue
         self.interval = interval
         self.running = True
-        self.history = {"CPU": [], "RAM": [], "GPU": [], "DISK_read": [], "DISK_write": [], "NET_recv": [], "NET_sent": []}
+        self.history = {
+            "CPU": [], "RAM": [], "GPU": [], 
+            "DISK_read": [], "DISK_write": [], 
+            "NET_recv": [], "NET_sent": [],
+            "CPU_temp": [], "GPU_temp": []  # Add temperature history
+        }
         self.last_disk_check_time = time.time()
         self.last_net_io = psutil.net_io_counters(pernic=True) if 'psutil' in globals() else None
         self.daemon = True # This thread will exit when the main program exits
@@ -59,6 +74,10 @@ class ThreadedDataFetcher(threading.Thread):
             cpu = core.get_cpu_usage()
             ram_percent = core.get_ram_usage()
             gpu = core.get_gpu_usage()
+
+            # Temperature data
+            cpu_temp = core.get_cpu_temp() if hasattr(core, 'get_cpu_temp') else None
+            gpu_temp = core.get_gpu_temp() if hasattr(core, 'get_gpu_temp') else None
 
             # Disk I/O, calculated over a period to get MB/s
             now = time.time()
@@ -84,6 +103,8 @@ class ThreadedDataFetcher(threading.Thread):
             if write_mb is not None: self.history["DISK_write"].append(write_mb)
             if net_recv_mb is not None: self.history["NET_recv"].append(net_recv_mb)
             if net_sent_mb is not None: self.history["NET_sent"].append(net_sent_mb)
+            if cpu_temp is not None: self.history["CPU_temp"].append(cpu_temp)
+            if gpu_temp is not None: self.history["GPU_temp"].append(gpu_temp)
 
             for key in self.history:
                 if len(self.history[key]) > MAX_POINTS:
@@ -111,6 +132,17 @@ class CRTGrapher:
         self.io_write_lbl = io_write_lbl
         self.frame_count = 0
         self.drawing_lock = threading.Lock()
+        
+        # Temperature display components (will be set later)
+        self.temp_canvas = None
+        self.temp_cpu_lbl = None
+        self.temp_gpu_lbl = None
+
+    def set_temp_components(self, temp_canvas, temp_cpu_lbl, temp_gpu_lbl):
+        """Set the temperature display components."""
+        self.temp_canvas = temp_canvas
+        self.temp_cpu_lbl = temp_cpu_lbl
+        self.temp_gpu_lbl = temp_gpu_lbl
 
     def smooth_data(self, data, window_size=5):
         """Manual data smoothing without a library."""
@@ -189,6 +221,37 @@ class CRTGrapher:
         self.draw_crt_line(self.io_canvas, smoothed_read, max_io, CRT_GREEN, tags="read_line")
         self.draw_crt_line(self.io_canvas, smoothed_write, max_io, "white", tags="write_line")
 
+    def draw_dual_temp(self, cpu_temp_hist, gpu_temp_hist):
+        """Draw dual temperature display similar to disk I/O."""
+        if not self.temp_canvas:
+            return
+            
+        self.temp_canvas.delete("all")
+        w = self.temp_canvas.winfo_width()
+        grid_spacing = max(1, w // 10)
+        x_offset = -(self.frame_count * 3) % grid_spacing
+        self.draw_crt_grid(self.temp_canvas, x_offset)
+
+        # Use reasonable max temp for scaling (100°C)
+        max_temp = max(cpu_temp_hist + gpu_temp_hist + [100])
+        smoothed_cpu = self.smooth_data(cpu_temp_hist)
+        smoothed_gpu = self.smooth_data(gpu_temp_hist)
+        
+        # Choose colors based on current temperatures
+        cpu_color = get_temp_color_crt(cpu_temp_hist[-1] if cpu_temp_hist else None)
+        gpu_color = get_temp_color_crt(gpu_temp_hist[-1] if gpu_temp_hist else None)
+        
+        # Draw fills first
+        cpu_fill = "#442222" if cpu_color == "#FF0000" else "#442200" if cpu_color == "#FF8800" else "#444400" if cpu_color == "#FFFF00" else "#224422"
+        gpu_fill = "#888888" if gpu_color == "#FF0000" else "#888888" if gpu_color == "#FF8800" else "#888888" if gpu_color == "#FFFF00" else "#888888"
+        
+        self.draw_filled_area(self.temp_canvas, smoothed_cpu, max_temp, cpu_fill, tags="cpu_fill")
+        self.draw_filled_area(self.temp_canvas, smoothed_gpu, max_temp, gpu_fill, tags="gpu_fill")
+        
+        # Draw lines on top
+        self.draw_crt_line(self.temp_canvas, smoothed_cpu, max_temp, cpu_color, tags="cpu_line")
+        self.draw_crt_line(self.temp_canvas, smoothed_gpu, max_temp, "#FFFFFF", tags="gpu_line")#white fpr GPU
+
     def draw_metric(self, canvas, series, max_value, color):
         canvas.delete("all")
         w = canvas.winfo_width()
@@ -215,12 +278,33 @@ class CRTGrapher:
         self.io_read_bar["value"] = min(read_mb, self.max_io)
         self.io_write_bar["value"] = min(write_mb, self.max_io)
 
+    def update_dual_temp_labels(self, cpu_temp, gpu_temp):
+        """Update temperature labels with current values and colors."""
+        if self.temp_cpu_lbl and cpu_temp is not None:
+            cpu_color = get_temp_color_crt(cpu_temp)
+            self.temp_cpu_lbl.config(
+                text=f"CPU: {cpu_temp:.1f}°C", 
+                foreground=cpu_color
+            )
+        
+        if self.temp_gpu_lbl and gpu_temp is not None:
+            gpu_color = get_temp_color_crt(gpu_temp)
+            self.temp_gpu_lbl.config(
+                text=f"GPU: {gpu_temp:.1f}°C", 
+                foreground="#FFFFFF"  # Keep GPU label cyan for consistency
+            )
+
     def redraw_all(self, history):
         """Redraws all canvases with the latest data history."""
         # Redraw CPU/GPU/RAM graphs
         if "CPU" in history and self.canvas:
-            self.draw_metric(self.canvas, history["CPU"], 100, color=get_usage_color(history["CPU"][-1]))
+            cpu_val = history["CPU"][-1] if history["CPU"] else 0
+            self.draw_metric(self.canvas, history["CPU"], 100, color=get_usage_color(cpu_val))
         
         # Re-draw the IO canvas
         if "DISK_read" in history and "DISK_write" in history and self.io_canvas:
             self.draw_dual_io(history["DISK_read"], history["DISK_write"])
+            
+        # Re-draw the temperature canvas
+        if "CPU_temp" in history and "GPU_temp" in history and self.temp_canvas:
+            self.draw_dual_temp(history["CPU_temp"], history["GPU_temp"])

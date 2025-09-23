@@ -341,10 +341,10 @@ def get_gpu_clock_speed():
     try:
         output = subprocess.check_output([nvidia_smi_path, "--query-gpu=clocks.sm", "--format=csv,noheader,nounits"], universal_newlines=True)
         # The output is a string like "1845" (for a clock speed of 1845 MHz)
-        clock_speed_mhz = output.strip()
+        clock_speed_mhz = float(output.strip()) 
         
         # Format the output into a more readable string
-        return f"{clock_speed_mhz} MHz"
+        return f"{clock_speed_mhz:>.0f}"
 
     except (subprocess.CalledProcessError, FileNotFoundError, IndexError, ValueError) as e:
         # Handle all potential errors

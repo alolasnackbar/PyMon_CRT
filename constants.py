@@ -1,4 +1,4 @@
-# --- Widget Constants ---
+# --- Widget ---
 MAX_POINTS = 60
 REFRESH_MS = 1000
 DISK_IO_MAX_MBPS = 500
