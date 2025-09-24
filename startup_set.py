@@ -57,11 +57,12 @@ patch_notes_frame.pack(side=LEFT, fill=BOTH, expand=True, padx=(5, 10), pady=5)
 
 patch_notes_text = """
 Current Patch Notes:
-- Version 0.0.45
-- New: temp cpu/gpu added, need more research on meters
-- New: gpu temps should be crossplatform linux/os amd nvd (not tested)
+- Version 0.0.5
+- New: temp cpu/gpu added, crt_graphics applied
+- New: config tab added for notebook customization 
 - Fix: Improved fullscreen behavior on multi-monitor setups, 
-- Adjusted: fine tuned and optimized for usage
+- Adjusted: fine tuned and optimized gui widgets
+- Deprecating: File menu will be moved into config tab for styling issues
 
 ________  unavailable until further notice __________
 - temp cpu/gpu added, need more research on meters

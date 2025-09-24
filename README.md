@@ -3,11 +3,16 @@
 -ttkbootstrap
 -wmi (cache)
 
-# version 0.0.45 as of last updated
-- fine tuned and optimized for usage
-- gpu temps should be crossplatform linux/os amd nvd (not tested)
+# version 0.0.5 as of last updated
+- New: temp cpu/gpu added, crt_graphics applied
+- New: config tab added for notebook customization 
+- Fix: Improved fullscreen behavior on multi-monitor setups, 
+- Adjusted: fine tuned and optimized gui widgets
+- Deprecating: File menu will be moved into config tab for styling issues
+
+________  unavailable until further notice __________
 - temp cpu/gpu added, need more research on meters
-- network tabs still not working more research needed
+- net stats limited
 
 ## ==== Feature to do list ======
 1. bar still looks dodo find a way to make it seamelss (RAM)
