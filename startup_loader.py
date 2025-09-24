@@ -2,17 +2,209 @@ import random
 import tkinter as tk
 from tkinter import ttk
 from constants import *
+import threading
+import time
 
-# # NOTE: These constants and the `Meter` widget would need to be defined elsewhere.
-# # Assuming 'CRT_GREEN' and 'DISK_IO_MAX_MBPS' are defined as constants.
-# CRT_GREEN = "green"
-# DISK_IO_MAX_MBPS = 100
+# Import monitor_core to test actual data detection
+try:
+    import monitor_core as core
+except ImportError:
+    core = None
 
-def end_loading(widgets, on_complete=None):
+def test_data_sources():
+    """Test all data sources and return their status."""
+    if not core:
+        return {}
+    
+    status = {}
+    
+    # Test CPU data
+    try:
+        cpu_usage = core.get_cpu_usage() if hasattr(core, 'get_cpu_usage') else None
+        cpu_info = core.get_cpu_info() if hasattr(core, 'get_cpu_info') else None
+        cpu_temp = core.get_cpu_temp() if hasattr(core, 'get_cpu_temp') else None
+        
+        if cpu_usage is not None and cpu_usage > 0:
+            status['CPU'] = 'detected'
+        elif cpu_usage is not None:
+            status['CPU'] = 'missing'  # Function exists but returns null/0
+        else:
+            status['CPU'] = 'default'
+            
+        if cpu_temp is not None and cpu_temp > 0:
+            status['CPU_temp'] = 'detected'
+        else:
+            status['CPU_temp'] = 'missing'
+    except Exception:
+        status['CPU'] = 'default'
+        status['CPU_temp'] = 'default'
+    
+    # Test RAM data
+    try:
+        ram_info = core.get_ram_info() if hasattr(core, 'get_ram_info') else None
+        if ram_info and isinstance(ram_info, dict) and ram_info.get('used', 0) > 0:
+            status['RAM'] = 'detected'
+        else:
+            status['RAM'] = 'missing'
+    except Exception:
+        status['RAM'] = 'default'
+    
+    # Test GPU data
+    try:
+        gpu_usage = core.get_gpu_usage() if hasattr(core, 'get_gpu_usage') else None
+        gpu_temp = core.get_gpu_temp() if hasattr(core, 'get_gpu_temp') else None
+        gpu_info = core.get_gpu_info() if hasattr(core, 'get_gpu_info') else None
+        
+        if gpu_usage is not None and gpu_usage > 0:
+            status['GPU'] = 'detected'
+        elif gpu_info and gpu_info != "N/A":
+            status['GPU'] = 'missing'  # GPU detected but no usage data
+        else:
+            status['GPU'] = 'default'
+            
+        if gpu_temp is not None and gpu_temp > 0:
+            status['GPU_temp'] = 'detected'
+        else:
+            status['GPU_temp'] = 'missing'
+    except Exception:
+        status['GPU'] = 'default'
+        status['GPU_temp'] = 'default'
+    
+    # Test Disk I/O data
+    try:
+        disk_io = core.get_disk_io() if hasattr(core, 'get_disk_io') else None
+        if disk_io and isinstance(disk_io, dict):
+            status['Disk I/O'] = 'detected'
+        else:
+            status['Disk I/O'] = 'missing'
+    except Exception:
+        status['Disk I/O'] = 'default'
+    
+    # Test Network data
+    try:
+        net_data = core.net_usage_latency() if hasattr(core, 'net_usage_latency') else None
+        if net_data and len(net_data) >= 2:
+            status['Network'] = 'detected'
+        else:
+            status['Network'] = 'missing'
+    except Exception:
+        status['Network'] = 'default'
+    
+    # Test System Info components
+    try:
+        uptime = core.get_uptime() if hasattr(core, 'get_uptime') else None
+        load_avg = core.get_load_average() if hasattr(core, 'get_load_average') else None
+        if uptime or load_avg:
+            status['Sys Info'] = 'detected'
+        else:
+            status['Sys Info'] = 'missing'
+    except Exception:
+        status['Sys Info'] = 'default'
+    
+    return status
+
+def update_widget_status(widgets, widget_key, status, style):
+    """Update widget visual status based on detection result."""
+    color = STATUS_COLORS.get(status, STATUS_COLORS['default'])
+    
+    w = widgets.get(widget_key)
+    if not w:
+        return
+    
+    # Handle progress bar widgets (CPU, GPU, RAM, Disk I/O)
+    if isinstance(w, tuple) and len(w) == 5:
+        if widget_key == "Disk I/O":
+            _, _, io_read_bar, io_write_bar, _ = w
+            style.configure(io_read_bar._style_name, background=color)
+            style.configure(io_write_bar._style_name, background=color)
+        else:
+            _, bar, _, _, _ = w
+            style.configure(bar._style_name, background=color)
+    
+    # Handle dictionary widgets (labels)
+    elif isinstance(w, dict):
+        for lbl in w.values():
+            try:
+                if hasattr(lbl, 'config'):
+                    lbl.config(foreground=color)
+            except (tk.TclError, AttributeError):
+                pass
+
+def cycle_notebook_tabs(widgets, current_cycle, max_cycles, detection_status, style, on_complete):
+    """Cycle through notebook tabs showing detection status."""
+    if "notebook" not in widgets:
+        on_complete()
+        return
+    
+    notebook = widgets["notebook"]
+    tab_count = len(notebook.tabs())
+    
+    if tab_count == 0:
+        on_complete()
+        return
+    
+    current_tab = current_cycle % tab_count
+    notebook.select(current_tab)
+    
+    # Update status display for current tab
+    tab_text = notebook.tab(current_tab, "text")
+    
+    # Show detection status in the current tab
+    if tab_text in detection_status:
+        status = detection_status[tab_text]
+        # You could add visual indicators here for the specific tab content
+        
+    if current_cycle < max_cycles:
+        # Continue cycling
+        delay = 800 if current_cycle < max_cycles - tab_count else 400  # Faster on final check
+        widgets["notebook"].after(delay, lambda: cycle_notebook_tabs(
+            widgets, current_cycle + 1, max_cycles, detection_status, style, on_complete
+        ))
+    else:
+        # Finished cycling, proceed to end loading
+        on_complete()
+
+def reset_widget_styles(widgets, style):
+    """Reset all widget styles to their default GUI colors."""
+    for key, w_group in widgets.items():
+        if isinstance(w_group, tuple) and len(w_group) == 5:
+            try:
+                if key == "Disk I/O":
+                    _, _, io_read_bar, io_write_bar, _ = w_group
+                    # Reset to original IO bar colors
+                    style.configure(io_read_bar._style_name, background=CRT_GREEN)
+                    style.configure(io_write_bar._style_name, background="white")
+                else:
+                    _, bar, _, _, _ = w_group
+                    # Reset to default progress bar color (will be updated by GUI)
+                    style.configure(bar._style_name, background=CRT_GREEN)
+            except (tk.TclError, AttributeError):
+                pass
+
+        elif isinstance(w_group, dict):
+            # Reset label colors to default
+            for lbl in w_group.values():
+                try:
+                    if hasattr(lbl, 'config'):
+                        lbl.config(foreground=CRT_GREEN)
+                except (tk.TclError, AttributeError):
+                    pass
+
+def end_loading(widgets, style, on_complete=None):
     """
-    Clears initial 'Loading...' states from all widgets and calls an
-    optional on_complete function when finished.
+    Clears initial states from all widgets, resets all colors to normal,
+    and calls an optional on_complete function when finished.
     """
+    # First reset all colors/styles to normal GUI defaults
+    reset_widget_styles(widgets, style)
+    
+    # Reset notebook to first tab
+    if "notebook" in widgets:
+        try:
+            widgets["notebook"].select(0)
+        except (tk.TclError, AttributeError):
+            pass
+    
     for key, w_group in widgets.items():
         # Handles progress bars stored in tuples (e.g., CPU, RAM)
         if isinstance(w_group, tuple) and len(w_group) == 5:
@@ -25,27 +217,18 @@ def end_loading(widgets, on_complete=None):
                     _, bar, _, _, _ = w_group
                     bar["value"] = 0
             except (tk.TclError, AttributeError):
-                # Gracefully handle if a widget was destroyed
                 pass
 
         # Handles widgets stored in dictionaries
         elif isinstance(w_group, dict):
-            if key == "Temp Stats":
-                # This key points to a dictionary of Meter widgets.
-                # Meters are reset using .configure() with specific options.
-                for meter in w_group.values():
-                    try:
-                        meter.configure(amountused=0) # subtext="N/A"
-                    except (tk.TclError, AttributeError):
-                        pass
-            else:
-                # All other dictionaries contain standard Label widgets.
-                # Labels are cleared by setting their text to an empty string.
-                for lbl in w_group.values():
-                    try:
+            # All dictionaries contain standard Label widgets.
+            # Labels are cleared by setting their text to an empty string.
+            for lbl in w_group.values():
+                try:
+                    if hasattr(lbl, 'config'):
                         lbl.config(text="")
-                    except (tk.TclError, AttributeError):
-                        pass
+                except (tk.TclError, AttributeError):
+                    pass
 
     # Call the completion callback function if it exists
     if on_complete:
@@ -53,12 +236,13 @@ def end_loading(widgets, on_complete=None):
 
 def startup_loader(root, widgets, style, on_complete=None):
     """
-    Animate CRT-green loading bars and labels for all widgets on startup.
-    Bars gradually fill and remain green until the loading finishes,
-    then revert to real-time updates.
+    Enhanced startup loader with value detection and debug visualization.
+    Shows detection status with colors and cycles through tabs.
     """
-    def fill_bar_gradually(bar, max_value=100, duration=800, steps=20):
-        """Gradually fill a progress bar."""
+    detection_status = {}
+    
+    def fill_bar_gradually(bar, max_value=100, duration=800, steps=20, color=CRT_GREEN):
+        """Gradually fill a progress bar with specified color."""
         step_delay = duration // steps
 
         def step(i=0):
@@ -66,53 +250,81 @@ def startup_loader(root, widgets, style, on_complete=None):
                 if i <= steps:
                     val = (i / steps) * max_value
                     bar["value"] = val
-                    style.configure(bar._style_name, background=CRT_GREEN)
+                    style.configure(bar._style_name, background=color)
                     root.after(step_delay, step, i + 1)
                 else:
-                    bar["value"] = max_value  # ensure full at the end
+                    bar["value"] = max_value
             except (tk.TclError, AttributeError):
-                # Gracefully handle cases where the widget is not a progress bar
                 pass
         step()
 
-    def animate_loading(widget_key):
-        w = widgets[widget_key]
-
-        # Handles progress bars (CPU, GPU, RAM)
-        if isinstance(w, tuple) and len(w) == 5:
-            _, bar, _, _, _ = w
-            fill_bar_gradually(bar)
+    def animate_loading_phase():
+        """Phase 1: Show loading animation with default red colors."""
+        delay = 0
         
-        # Handles disk I/O bars
-        elif widget_key == "Disk I/O" and isinstance(w, tuple) and len(w) == 5:
-            _, _, io_read_bar, io_write_bar, _ = w
-            fill_bar_gradually(io_read_bar, max_value=DISK_IO_MAX_MBPS)
-            fill_bar_gradually(io_write_bar, max_value=DISK_IO_MAX_MBPS)
+        for widget_key in widgets.keys():
+            if widget_key == "notebook":  # Skip notebook itself
+                continue
+                
+            def animate_widget(key=widget_key):
+                w = widgets[key]
+                
+                # Set initial red color and animate
+                if isinstance(w, tuple) and len(w) == 5:
+                    if key == "Disk I/O":
+                        _, _, io_read_bar, io_write_bar, _ = w
+                        fill_bar_gradually(io_read_bar, max_value=DISK_IO_MAX_MBPS, color=STATUS_COLORS['default'])
+                        fill_bar_gradually(io_write_bar, max_value=DISK_IO_MAX_MBPS, color=STATUS_COLORS['default'])
+                    else:
+                        _, bar, _, _, _ = w
+                        fill_bar_gradually(bar, color=STATUS_COLORS['default'])
+                
+                elif isinstance(w, dict):
+                    for lbl in w.values():
+                        try:
+                            if hasattr(lbl, 'config'):
+                                lbl.config(text="Loading...", foreground=STATUS_COLORS['default'])
+                        except (tk.TclError, AttributeError):
+                            pass
+            
+            root.after(delay, animate_widget)
+            delay += 200 + random.randint(0, 100)
         
-        # Handles dictionaries (labels and meters)
-        elif isinstance(w, dict):
-            if widget_key == "Temp Stats":
-                # Animate Meter widgets
-                for meter in w.values():
-                    try:
-                        # Set subtext and a loading amount for visual feedback
-                        meter.configure(amountused=50)#subtext="Loading..."
-                    except (tk.TclError, AttributeError):
-                        pass
-            else:
-                # Animate Label widgets
-                for lbl in w.values():
-                    try:
-                        lbl.config(text="Loading...", foreground=CRT_GREEN)
-                    except (tk.TclError, AttributeError):
-                        pass
-
-    # Staggered animation for all widgets
-    delay = 0
-    for key in widgets.keys():
-        root.after(delay, lambda k=key: animate_loading(k))
-        delay += 600 + random.randint(0, 300)
-
-    # After all animations finish, call the standalone end_loading function.
-    # The `lambda` is used to pass arguments to the function call.
-    root.after(delay + 800, lambda: end_loading(widgets, on_complete))
+        # After loading animation, start detection phase
+        root.after(delay + 500, detection_phase)
+    
+    def detection_phase():
+        """Phase 2: Test data sources and update colors."""
+        def test_in_background():
+            nonlocal detection_status
+            detection_status = test_data_sources()
+            
+            # Update widget colors based on detection
+            root.after(0, lambda: update_detection_display())
+        
+        def update_detection_display():
+            for widget_key, status in detection_status.items():
+                update_widget_status(widgets, widget_key, status, style)
+            
+            # Add some delay to show the color changes
+            root.after(1000, tab_cycling_phase)
+        
+        # Run detection in background thread to avoid blocking UI
+        threading.Thread(target=test_in_background, daemon=True).start()
+    
+    def tab_cycling_phase():
+        """Phase 3: Cycle through tabs showing detection results."""
+        if "notebook" in widgets:
+            tab_count = len(widgets["notebook"].tabs())
+            # Cycle through twice (2x) plus one final check (1x) = 3x total
+            max_cycles = tab_count * 3
+            cycle_notebook_tabs(widgets, 0, max_cycles, detection_status, style, final_phase)
+        else:
+            final_phase()
+    
+    def final_phase():
+        """Phase 4: Complete loading and start application."""
+        end_loading(widgets, style, on_complete)
+    
+    # Start the enhanced loading sequence
+    animate_loading_phase()

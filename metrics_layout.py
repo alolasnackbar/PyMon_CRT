@@ -8,9 +8,17 @@ from widgets import build_metric_frame #center_overlay_label
 def build_metrics(root, style):
     """
     Creates and places all the main frames and widgets into the root window using a 
-    data-driven approach with .grid() for a responsive layout.
+    data-driven approach with .grid() for a responsive layout with balanced sizing.
     """
     widgets = {}
+
+    # Configure root grid weights for balanced columns
+    root.columnconfigure(0, weight=1, uniform="column")  # Left column
+    root.columnconfigure(1, weight=1, uniform="column")  # Right column
+    
+    # Configure row weights
+    for i in range(3):
+        root.rowconfigure(i, weight=1, uniform="row")
 
     metric_list = [
         {"name": "CPU", "maxval": 100, "row": 0, "col": 0},
@@ -62,7 +70,7 @@ def build_metrics(root, style):
             f.columnconfigure(0, weight=1)
 
             nb = tb.Notebook(f, bootstyle="dark")
-            nb.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
+            nb.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
 
             # Store notebook reference for auto-cycling
             widgets["notebook"] = nb
@@ -113,22 +121,22 @@ def build_metrics(root, style):
             # Combined temperature label (CPU + GPU)
             cpu_gpu_line = tb.Text(
                 f_temp,
-                height=0.5,
+                height=1,
                 font=FONT_TITLE,
                 background="black",
                 relief="flat",
-                highlightthickness=0
+                highlightthickness=0,
+                wrap="none"
             )
             cpu_gpu_line.grid(row=0, column=0, sticky="ew", padx=4, pady=(4, 0))
             temp_widgets["Temp_Label"] = cpu_gpu_line
-
 
             # CRT Temperature Canvas (similar to disk I/O canvas)
             temp_canvas = tb.Canvas(f_temp, height=GRAPH_HEIGHT, background="black", highlightthickness=0)
             temp_canvas.grid(row=1, column=0, sticky="nsew", padx=4, pady=4)
             temp_widgets["Canvas"] = temp_canvas
 
-            # --- Tab 4: Config (Compact, left-aligned, avoids extra width) ---
+            # --- Tab 5: Config (Original layout restored with balanced sizing) ---
             f_config = tb.Frame(nb)
             nb.add(f_config, text="Config")
             f_config.columnconfigure(0, weight=1)
@@ -139,13 +147,13 @@ def build_metrics(root, style):
             # Main container
             main_container = tb.Frame(f_config)
             main_container.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
-            main_container.columnconfigure((0, 1), weight=0)  # Do NOT expand horizontally
+            main_container.columnconfigure((0, 1), weight=1)  # Both columns expand equally
             main_container.rowconfigure((0, 1, 2, 3, 4), weight=1)
 
             # --- Column 1: Processing & Auto-cycling ---
-            process_frame = tb.Labelframe(main_container, text="Processing Display", bootstyle="info")
-            process_frame.grid(row=0, column=0, sticky="nw", padx=2, pady=1)  # stick to top-left
-            process_frame.columnconfigure(1, weight=0)
+            process_frame = tb.Labelframe(main_container, text="Processing Display", bootstyle="success")
+            process_frame.grid(row=0, column=0, sticky="nsew", padx=2, pady=1)
+            process_frame.columnconfigure(1, weight=1)
 
             tb.Label(process_frame, text="Process count:", font=("Consolas", 10), foreground=CRT_GREEN).grid(row=0, column=0, padx=2, pady=1, sticky="w")
             process_slider = tb.Scale(process_frame, from_=3, to=5, orient="horizontal", bootstyle="success", length=100)
@@ -165,8 +173,8 @@ def build_metrics(root, style):
 
             # Auto-cycling
             cycle_frame = tb.Labelframe(main_container, text="Auto Tab Cycling", bootstyle="success")
-            cycle_frame.grid(row=1, column=0, sticky="nw", padx=2, pady=1)
-            cycle_frame.columnconfigure(1, weight=0)
+            cycle_frame.grid(row=1, column=0, sticky="nsew", padx=2, pady=1)
+            cycle_frame.columnconfigure(1, weight=1)
 
             cycle_enabled_var = tb.BooleanVar(value=False)
             cycle_check = tb.Checkbutton(cycle_frame, text="Enable cycling (main 4 tabs only)", variable=cycle_enabled_var, bootstyle="success-round-toggle")
@@ -189,20 +197,20 @@ def build_metrics(root, style):
             config_widgets["cycle_delay"] = 5
 
             # --- Column 2: Smart Focus ---
-            focus_frame = tb.Labelframe(main_container, text="Smart Auto-Focus", bootstyle="warning")
-            focus_frame.grid(row=0, column=1, rowspan=2, sticky="nw", padx=2, pady=1)
-            focus_frame.columnconfigure(1, weight=0)
+            focus_frame = tb.Labelframe(main_container, text="Smart Auto-Focus", bootstyle="success")
+            focus_frame.grid(row=0, column=1, rowspan=2, sticky="nsew", padx=2, pady=1)
+            focus_frame.columnconfigure(1, weight=1)
             focus_frame.rowconfigure((1, 2, 3, 4), weight=1)
 
             focus_enabled_var = tb.BooleanVar(value=True)
-            focus_check = tb.Checkbutton(focus_frame, text="Enable smart focus (main 4 tabs)", variable=focus_enabled_var, bootstyle="warning-round-toggle")
+            focus_check = tb.Checkbutton(focus_frame, text="Enable SmartFocus", variable=focus_enabled_var, bootstyle="success-round-toggle")
             focus_check.grid(row=0, column=0, columnspan=3, padx=2, pady=1, sticky="w")
 
             # Threshold sliders
             threshold_data = [
-                ("CPU Usage (%):", 50, 95, 80, "cpu_threshold", "warning"),
-                ("Temperature (°C):", 60, 95, 75, "temp_threshold", "danger"),
-                ("Network Ping (ms):", 100, 1000, 200, "latency_threshold", "info")
+                ("CPU Usage (%):", 50, 95, 80, "cpu_threshold", "success"),
+                ("Temperature (°C):", 60, 95, 75, "temp_threshold", "success"),
+                ("Network Ping (ms):", 100, 1000, 200, "latency_threshold", "success")
             ]
 
             for i, (label, min_val, max_val, default, key, style) in enumerate(threshold_data, 1):
@@ -228,26 +236,23 @@ def build_metrics(root, style):
 
             # --- Bottom row: Accessibility & Status ---
             bottom_row = tb.Frame(main_container)
-            bottom_row.grid(row=2, column=0, columnspan=2, sticky="nw", padx=2, pady=1)
-            bottom_row.columnconfigure((0, 1), weight=0)
+            bottom_row.grid(row=2, column=0, columnspan=2, sticky="nsew", padx=2, pady=1)
+            bottom_row.columnconfigure((0, 1), weight=1)
 
             colorblind_var = tb.BooleanVar(value=False)
-            colorblind_check = tb.Checkbutton(bottom_row, text="Color Blind Friendly Mode", variable=colorblind_var, bootstyle="info-round-toggle")
+            colorblind_check = tb.Checkbutton(bottom_row, text="Color Blind Mode", variable=colorblind_var, bootstyle="success-round-toggle")
             colorblind_check.grid(row=0, column=0, sticky="w", padx=2, pady=1)
             config_widgets["colorblind_mode"] = colorblind_var
 
             status_frame = tb.Frame(bottom_row)
-            status_frame.grid(row=0, column=1, sticky="nw", padx=2, pady=1)
-            status_frame.columnconfigure(0, weight=0)
+            status_frame.grid(row=0, column=1, sticky="nsew", padx=2, pady=1)
+            status_frame.columnconfigure(1, weight=1)
             tb.Label(status_frame, text="Status:", font=("Consolas", 10), foreground=CRT_GREEN, anchor="e").grid(row=0, column=0, sticky="e", padx=(0, 2))
             status_lbl = tb.Label(status_frame, text="Ready", font=("Consolas", 10, "bold"), foreground=CRT_GREEN, anchor="w", bootstyle="inverse-success")
             status_lbl.grid(row=0, column=1, sticky="w", padx=2)
             config_widgets["status_label"] = status_lbl
 
-
-
-
-            # --- Store widget references ---
+            # Store widget references
             widgets["Sys Info"] = info_labels
             widgets["CPU Stats"] = cpu_labels
             widgets["Temp Stats"] = temp_widgets
@@ -273,8 +278,6 @@ def build_metrics(root, style):
         else:
             f, lbl, bar, cvs, overlay_lbl = build_metric_frame(root, name, style=style, maxval=metric["maxval"])
             f.grid(row=row, column=col, sticky="nsew", padx=4, pady=4)
-            root.rowconfigure(row, weight=1)
-            root.columnconfigure(col, weight=1)
             widgets[name] = (lbl, bar, cvs, metric["maxval"], overlay_lbl)
 
     return widgets

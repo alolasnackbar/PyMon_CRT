@@ -27,6 +27,14 @@ NORMAL_COLORS = {
     'info': CRT_CYAN
 }
 
+# Color scheme for detection status
+STATUS_COLORS = {
+    'default': CRT_RED,      # Red: Default/undetected
+    'detected': CRT_GREEN,   # Green: Values detected
+    'missing': CRT_YELLOW,   # Yellow: Not supported/null values
+    'loading': CRT_CYAN      # Cyan: Currently testing
+}
+
 # --- Font styling ---
 FONT_TITLE = ("Consolas", 14, "bold")
 FONT_SYSTIME = ("Consolas", 55, "bold")

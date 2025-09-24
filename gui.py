@@ -1,3 +1,4 @@
+import tkinter as tk
 import ttkbootstrap as tb
 from ttkbootstrap.constants import *
 import threading
@@ -13,6 +14,7 @@ from crt_graphics import CRTGrapher, ThreadedDataFetcher
 from metrics_layout import build_metrics
 from startup_loader import startup_loader
 import monitor_core as core
+from PIL import Image, ImageTk
 
 # --- Constants & Globals ---
 REFRESH_GUI_MS = 100
@@ -234,8 +236,8 @@ def auto_cycle_tabs():
 def update_status(message):
     """Updates the status label in the config tab."""
     if "Config" in widgets and "status_label" in widgets["Config"]:
-        # Allow longer messages for better readability in adaptive layout
-        max_length = 35
+        # Compact status messages for the new layout
+        max_length = 20
         if len(message) > max_length:
             message = message[:max_length-3] + "..."
         widgets["Config"]["status_label"].config(text=message)
@@ -245,7 +247,7 @@ def update_status(message):
 # ==============================================================================
 root = tb.Window(themename="darkly")
 root.title("AlohaSnackBar Hardware Monitor")
-root.minsize(580, 450) # Set a minimum size to maintain readability
+root.minsize(580, 450) # Set minimum size to maintain readability
 
 # --- Initial Geometry ---
 fullscreen = False
@@ -264,12 +266,6 @@ try:
         root.geometry("960x600")
 except Exception:
     root.geometry("960x600")
-
-# --- Configure Root Grid Weights for Resizing ---
-for i in range(3):
-    root.rowconfigure(i, weight=1)
-for i in range(2):
-    root.columnconfigure(i, weight=1)
 
 style = tb.Style()
 
@@ -359,7 +355,7 @@ def on_colorblind_change():
         colorblind_mode = widgets["Config"]["colorblind_mode"].get()
         update_color_scheme(colorblind_mode)
         mode_text = "enabled" if colorblind_mode else "disabled"
-        update_status(f"Color blind mode {mode_text}")
+        update_status(f"Color blind {mode_text}")
         # Force a redraw of all colored elements
         if latest_history:
             # This will trigger color updates on next GUI refresh
@@ -434,7 +430,7 @@ def _update_metric_display(key, history):
     if key == "CPU":
         freq_tuple = core.get_cpu_freq()
         freq_text = f"{freq_tuple[0]:>4.2f} GHz" if freq_tuple and freq_tuple[0] else " N/A "
-        lbl.config(foreground=lbl_color, text=f"CPU Usage: {val:>5.1f}%   CPU Speed: {freq_text}")
+        lbl.config(foreground=lbl_color, text=f"CPU Usage: {val:>5.1f}%  CPU Speed: {freq_text}")
     elif key == "RAM":
         ram_info = core.get_ram_info()
         used = ram_info.get('used', 0)
@@ -446,8 +442,8 @@ def _update_metric_display(key, history):
             overlay_lbl.config(text=display_text, background=lbl_color, foreground="black")
             overlay_lbl.place_configure(relx=new_relx)
     else: # GPU
-        gpu_clocks = core.get_gpu_clock_speed
-        lbl.config(foreground=lbl_color, text=f"{key} Usage: {val:>5.1f}% | {gpu_clocks} Mhz")
+        gpu_clocks = core.get_gpu_clock_speed()
+        lbl.config(foreground=lbl_color, text=f"{key} Usage: {val:>5.1f}%  Clock Speed: {gpu_clocks} Mhz")
 
     style.configure(bar._style_name, background=lbl_color)
     bar["value"] = val
@@ -545,22 +541,6 @@ def update_heavy_stats():
                 if "Temp Stats" in widgets:
                     temp_widgets = widgets["Temp Stats"]
 
-                    # Update GPU meter
-                    if "GPU Meter" in temp_widgets and gpu_temp is not None:
-                        color = get_temp_color(gpu_temp)
-                        temp_widgets["GPU Meter"].configure(
-                            amountused=gpu_temp,
-                            bootstyle=color
-                        )
-
-                    # Update CPU meter
-                    if "CPU Meter" in temp_widgets and cpu_temp is not None:
-                        color = get_temp_color(cpu_temp)
-                        temp_widgets["CPU Meter"].configure(
-                            amountused=cpu_temp,
-                            bootstyle=color
-                        )
-
                     # Update combined CPU/GPU line with colors
                     if "Temp_Label" in temp_widgets:
                         cpu_text = f"{cpu_temp:.0f}°C" if cpu_temp is not None else "... °C"
@@ -627,7 +607,7 @@ def start_app():
     root.after(2000, auto_cycle_tabs)
     
     # Initial status
-    update_status("System monitoring active")
+    update_status("Monitoring active")
 
 if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
