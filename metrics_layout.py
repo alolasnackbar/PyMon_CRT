@@ -237,18 +237,49 @@ def build_metrics(root, style):
             # --- Bottom row: Accessibility & Status ---
             bottom_row = tb.Frame(main_container)
             bottom_row.grid(row=2, column=0, columnspan=2, sticky="nsew", padx=2, pady=1)
-            bottom_row.columnconfigure((0, 1), weight=1)
+            bottom_row.columnconfigure((0, 1, 2), weight=1)  # now 3 columns: left, middle, right
 
+            # Left: Color Blind Mode
             colorblind_var = tb.BooleanVar(value=False)
-            colorblind_check = tb.Checkbutton(bottom_row, text="Color Blind Mode", variable=colorblind_var, bootstyle="success-round-toggle")
+            colorblind_check = tb.Checkbutton(
+                bottom_row, 
+                text="Color Blind Mode", 
+                variable=colorblind_var, 
+                bootstyle="success-round-toggle"
+            )
             colorblind_check.grid(row=0, column=0, sticky="w", padx=2, pady=1)
             config_widgets["colorblind_mode"] = colorblind_var
 
+            # Middle: Button
+            middle_btn = tb.Button(
+                bottom_row, 
+                text="Startup Settings", 
+                bootstyle="success",
+            )
+            middle_btn.grid(row=0, column=1, padx=5, pady=1, sticky="ew")
+            config_widgets["apply_button"] = middle_btn
+
+            # Right: Status
             status_frame = tb.Frame(bottom_row)
-            status_frame.grid(row=0, column=1, sticky="nsew", padx=2, pady=1)
+            status_frame.grid(row=0, column=2, sticky="nsew", padx=2, pady=1)
             status_frame.columnconfigure(1, weight=1)
-            tb.Label(status_frame, text="Status:", font=("Consolas", 10), foreground=CRT_GREEN, anchor="e").grid(row=0, column=0, sticky="e", padx=(0, 2))
-            status_lbl = tb.Label(status_frame, text="Ready", font=("Consolas", 10, "bold"), foreground=CRT_GREEN, anchor="w", bootstyle="inverse-success")
+
+            tb.Label(
+                status_frame, 
+                text="Status:", 
+                font=("Consolas", 10), 
+                foreground=CRT_GREEN, 
+                anchor="e"
+            ).grid(row=0, column=0, sticky="e", padx=(0, 2))
+
+            status_lbl = tb.Label(
+                status_frame, 
+                text="Ready", 
+                font=("Consolas", 10, "bold"), 
+                foreground=CRT_GREEN, 
+                anchor="w", 
+                bootstyle="inverse-success"
+            )
             status_lbl.grid(row=0, column=1, sticky="w", padx=2)
             config_widgets["status_label"] = status_lbl
 

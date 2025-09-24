@@ -16,15 +16,6 @@ from startup_loader import startup_loader
 import monitor_core as core
 from PIL import Image, ImageTk
 
-# --- Constants & Globals ---
-REFRESH_GUI_MS = 100
-REFRESH_HEAVY_MS = REFRESH_MS * 5
-REFRESH_SLOW_MS = REFRESH_MS * 2
-
-NETWORK_INTERFACE = None
-PING_HOST = "8.8.8.8"
-PING_COUNT = 3
-
 data_queue = queue.Queue()
 network_results = {"in_MB": 0, "out_MB": 0, "latency_ms": 0}
 last_resize_time = 0
@@ -39,22 +30,6 @@ focus_override_time = 0
 FOCUS_OVERRIDE_DURATION = 10000  # 10 seconds in milliseconds
 config_tab_was_manually_selected = False
 MAIN_TABS_COUNT = 4  # Only cycle through first 4 tabs (excluding config)
-
-# Color schemes for color blind mode
-COLORBLIND_COLORS = {
-    'success': '#0173B2',   # Blue
-    'warning': '#DE8F05',   # Orange  
-    'danger': '#CC78BC',    # Pink
-    'info': '#029E73'       # Teal
-}
-
-NORMAL_COLORS = {
-    'success': CRT_GREEN,
-    'warning': CRT_YELLOW, 
-    'danger': CRT_RED,
-    'info': CRT_CYAN
-}
-
 current_color_scheme = NORMAL_COLORS
 
 # --- Startup & Configuration ---
@@ -368,6 +343,9 @@ def setup_config_bindings():
         # Bind colorblind mode change
         if "colorblind_mode" in config:
             config["colorblind_mode"].trace('w', lambda *args: on_colorblind_change())
+        # Bind Apply Settings button
+        if "apply_button" in config:
+            config["apply_button"].configure(command=open_startup_settings)
 
 # ==============================================================================
 # ==== Fullscreen & Resize Management

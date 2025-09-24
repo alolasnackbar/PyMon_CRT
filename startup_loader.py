@@ -123,10 +123,19 @@ def update_widget_status(widgets, widget_key, status, style):
     
     # Handle dictionary widgets (labels)
     elif isinstance(w, dict):
-        for lbl in w.values():
+        for key, widget in w.items():
             try:
-                if hasattr(lbl, 'config'):
-                    lbl.config(foreground=color)
+                if hasattr(widget, 'config') and hasattr(widget, 'winfo_class'):
+                    widget_class = widget.winfo_class()
+                    
+                    # Skip buttons, checkbuttons, scales, and other interactive widgets
+                    if widget_class in ('TButton', 'TCheckbutton', 'TScale', 'Button', 'Checkbutton', 'Scale'):
+                        continue
+                        
+                    # Only apply color to labels and text widgets
+                    if widget_class in ('TLabel', 'Label', 'Text', 'Entry'):
+                        widget.config(foreground=color)
+                        
             except (tk.TclError, AttributeError):
                 pass
 
@@ -316,8 +325,8 @@ def startup_loader(root, widgets, style, on_complete=None):
         """Phase 3: Cycle through tabs showing detection results."""
         if "notebook" in widgets:
             tab_count = len(widgets["notebook"].tabs())
-            # Cycle through twice (2x) plus one final check (1x) = 3x total
-            max_cycles = tab_count * 3
+            # Cycle through twice (2x) plus one final check (1x)
+            max_cycles = tab_count * 2
             cycle_notebook_tabs(widgets, 0, max_cycles, detection_status, style, final_phase)
         else:
             final_phase()
