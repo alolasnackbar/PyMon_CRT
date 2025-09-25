@@ -3,16 +3,16 @@
 -ttkbootstrap
 -wmi (cache)
 
-# version 0.0.5 as of last updated
-- New: temp cpu/gpu added, crt_graphics applied
+# version 0.0.6 as of last updated
+- New: user_config saves config stats to .txt file
 - New: config tab added for notebook customization 
-- Fix: Improved fullscreen behavior on multi-monitor setups, 
 - Adjusted: fine tuned and optimized gui widgets
 - Deprecating: File menu will be moved into config tab for styling issues
-
-________  unavailable until further notice __________
+_________________________________________________________________________
+________  unavailable until further notice ______________________________
 - temp cpu/gpu added, need more research on meters
 - net stats limited
+- Bug: Improved fullscreen behavior on multi-monitor setups, 
 
 ## ==== Feature to do list ======
 1. bar still looks dodo find a way to make it seamelss (RAM)

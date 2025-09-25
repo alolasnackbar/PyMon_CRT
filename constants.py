@@ -53,3 +53,16 @@ REFRESH_SLOW_MS = REFRESH_MS * 2
 NETWORK_INTERFACE = None
 PING_HOST = "8.8.8.8"
 PING_COUNT = 3
+
+# Configuration defaults
+DEFAULT_CONFIG = {
+    "monitor_index": 3,
+    "process_count": 5,
+    "cycle_enabled": False,
+    "cycle_delay": 5,
+    "focus_enabled": True,
+    "cpu_threshold": 80,
+    "temp_threshold": 75,
+    "latency_threshold": 200,
+    "colorblind_mode": False
+}

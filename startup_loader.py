@@ -191,11 +191,20 @@ def reset_widget_styles(widgets, style):
                 pass
 
         elif isinstance(w_group, dict):
-            # Reset label colors to default
-            for lbl in w_group.values():
+            # Reset label colors to default, but protect interactive widgets
+            for key, widget in w_group.items():
                 try:
-                    if hasattr(lbl, 'config'):
-                        lbl.config(foreground=CRT_GREEN)
+                    if hasattr(widget, 'config') and hasattr(widget, 'winfo_class'):
+                        widget_class = widget.winfo_class()
+                        
+                        # Skip buttons, checkbuttons, scales, and other interactive widgets
+                        if widget_class in ('TButton', 'TCheckbutton', 'TScale', 'Button', 'Checkbutton', 'Scale'):
+                            continue
+                            
+                        # Only apply color to labels and text widgets
+                        if widget_class in ('TLabel', 'Label', 'Text', 'Entry'):
+                            widget.config(foreground=CRT_GREEN)
+                            
                 except (tk.TclError, AttributeError):
                     pass
 
@@ -203,6 +212,7 @@ def end_loading(widgets, style, on_complete=None):
     """
     Clears initial states from all widgets, resets all colors to normal,
     and calls an optional on_complete function when finished.
+    FIXED: Now properly protects interactive widgets like buttons.
     """
     # First reset all colors/styles to normal GUI defaults
     reset_widget_styles(widgets, style)
@@ -230,12 +240,19 @@ def end_loading(widgets, style, on_complete=None):
 
         # Handles widgets stored in dictionaries
         elif isinstance(w_group, dict):
-            # All dictionaries contain standard Label widgets.
-            # Labels are cleared by setting their text to an empty string.
-            for lbl in w_group.values():
+            for widget_key, widget in w_group.items():
                 try:
-                    if hasattr(lbl, 'config'):
-                        lbl.config(text="")
+                    if hasattr(widget, 'config') and hasattr(widget, 'winfo_class'):
+                        widget_class = widget.winfo_class()
+                        
+                        # Skip buttons, checkbuttons, scales, and other interactive widgets
+                        if widget_class in ('TButton', 'TCheckbutton', 'TScale', 'Button', 'Checkbutton', 'Scale'):
+                            continue
+                            
+                        # Only clear text for labels and text widgets
+                        if widget_class in ('TLabel', 'Label', 'Text', 'Entry'):
+                            widget.config(text="")
+                            
                 except (tk.TclError, AttributeError):
                     pass
 
@@ -247,6 +264,7 @@ def startup_loader(root, widgets, style, on_complete=None):
     """
     Enhanced startup loader with value detection and debug visualization.
     Shows detection status with colors and cycles through tabs.
+    FIXED: Now properly protects interactive widgets during all phases.
     """
     detection_status = {}
     
@@ -289,10 +307,19 @@ def startup_loader(root, widgets, style, on_complete=None):
                         fill_bar_gradually(bar, color=STATUS_COLORS['default'])
                 
                 elif isinstance(w, dict):
-                    for lbl in w.values():
+                    for widget_key, widget in w.items():
                         try:
-                            if hasattr(lbl, 'config'):
-                                lbl.config(text="Loading...", foreground=STATUS_COLORS['default'])
+                            if hasattr(widget, 'config') and hasattr(widget, 'winfo_class'):
+                                widget_class = widget.winfo_class()
+                                
+                                # Skip buttons, checkbuttons, scales, and other interactive widgets
+                                if widget_class in ('TButton', 'TCheckbutton', 'TScale', 'Button', 'Checkbutton', 'Scale'):
+                                    continue
+                                    
+                                # Only apply loading text to labels and text widgets
+                                if widget_class in ('TLabel', 'Label', 'Text', 'Entry'):
+                                    widget.config(text="Loading...", foreground=STATUS_COLORS['default'])
+                                    
                         except (tk.TclError, AttributeError):
                             pass
             
