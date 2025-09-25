@@ -1,4 +1,5 @@
 # metrics_layout.py
+import tkinter as tk
 import ttkbootstrap as tb
 from ttkbootstrap.constants import *
 from constants import *
@@ -165,10 +166,10 @@ def build_metrics(root, style):
             def update_process_count(val):
                 count = int(float(val))
                 process_count_lbl.config(text=str(count))
-                config_widgets["process_count"] = count
+                config_widgets["process_count"] = count 
 
             process_slider.configure(command=update_process_count)
-            config_widgets["process_count"] = 5
+            config_widgets["process_count"] = tk.IntVar(value=5) #contains object of type 'int', expected tk.IntVar fix
             config_widgets["process_slider"] = process_slider
 
             # Auto-cycling
@@ -194,7 +195,7 @@ def build_metrics(root, style):
 
             cycle_slider.configure(command=update_cycle_delay)
             config_widgets["cycle_enabled"] = cycle_enabled_var
-            config_widgets["cycle_delay"] = 5
+            config_widgets["cycle_delay"] = tk.IntVar(value=5)  #contains object of type 'int', expected tk.IntVar fix
 
             # --- Column 2: Smart Focus ---
             focus_frame = tb.Labelframe(main_container, text="Smart Auto-Focus", bootstyle="success")
