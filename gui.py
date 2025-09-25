@@ -8,6 +8,7 @@ import os
 import sys
 import subprocess
 import time
+import json # <-- Added
 
 from constants import *
 from crt_graphics import CRTGrapher, ThreadedDataFetcher
@@ -16,6 +17,10 @@ from startup_loader import startup_loader
 import monitor_core as core
 from PIL import Image, ImageTk
 
+# --- Configuration Dictionary to hold all settings ---
+CONFIG = {}
+
+# --- Globals ---
 data_queue = queue.Queue()
 network_results = {"in_MB": 0, "out_MB": 0, "latency_ms": 0}
 last_resize_time = 0
@@ -27,27 +32,76 @@ last_cycle_time = 0
 current_tab_index = 0
 smart_focus_active = False
 focus_override_time = 0
-FOCUS_OVERRIDE_DURATION = 10000  # 10 seconds in milliseconds
+FOCUS_OVERRIDE_DURATION = 10000 # 10 seconds in milliseconds
 config_tab_was_manually_selected = False
-MAIN_TABS_COUNT = 4  # Only cycle through first 4 tabs (excluding config)
-current_color_scheme = NORMAL_COLORS
+MAIN_TABS_COUNT = 4 # Only cycle through first 4 tabs (excluding config)
+current_color_scheme = {} # Will be set by load_config and update_color_scheme
 
-# --- Startup & Configuration ---
-def get_startup_monitor():
-    """Reads the selected monitor index from the config file."""
+# --- Refactored Startup & Configuration ---
+def load_config():
+    """Reads the configuration from the JSON file."""
+    default_config = {
+        "monitor_index": 0,
+        "process_count": 5,
+        "cycle_enabled": False,
+        "cycle_delay": 5,
+        "focus_enabled": True,
+        "cpu_threshold": 80,
+        "temp_threshold": 75,
+        "latency_threshold": 200,
+        "colorblind_mode": False
+    }
+    
+    global CONFIG, current_color_scheme
+    CONFIG = default_config
+    # Assuming NORMAL_COLORS is imported from constants
+    current_color_scheme = NORMAL_COLORS 
+    
     try:
         with open("startup_config.txt", "r") as f:
-            return int(f.read().strip())
-    except (FileNotFoundError, ValueError):
-        return 0  # Default to current/primary monitor
+            content = f.read().strip()
+            try:
+                # New format: JSON
+                loaded_config = json.loads(content)
+                if isinstance(loaded_config, dict):
+                    CONFIG.update(loaded_config)
+            except json.JSONDecodeError:
+                # Old format: just monitor index (plain text)
+                try:
+                    CONFIG["monitor_index"] = int(content)
+                except ValueError:
+                    pass
+    except FileNotFoundError:
+        pass # Use defaults
+        
+    update_color_scheme(CONFIG["colorblind_mode"])
+
+def get_startup_monitor():
+    """Reads the selected monitor index from the global CONFIG."""
+    return CONFIG.get("monitor_index", 0)
 
 def open_startup_settings():
     """Closes the current GUI and re-runs the startup settings script."""
     root.destroy()
+    
+    # Determine which file to run (.exe takes precedence)
+    script_path = os.path.abspath("startup_set.py")
+    exe_path = os.path.abspath("startup_set.exe")
+    
+    if os.path.exists(exe_path):
+        target_path = exe_path
+        args = [target_path]
+    elif os.path.exists(script_path):
+        target_path = script_path
+        args = [sys.executable, target_path]
+    else:
+        print("Error: Neither startup_set.py nor startup_set.exe found.")
+        return
+
     try:
-        subprocess.run([sys.executable, "startup_set.py"], check=True)
+        subprocess.run(args, check=True)
     except FileNotFoundError:
-        print("Error: startup_set.py not found.")
+        print(f"Error: {target_path} not found.")
     except subprocess.CalledProcessError:
         print("Error: The setup script failed to run.")
 
@@ -57,10 +111,15 @@ def open_startup_settings():
 def update_color_scheme(colorblind_mode=False):
     """Updates the color scheme based on colorblind mode setting."""
     global current_color_scheme
-    if colorblind_mode:
-        current_color_scheme = COLORBLIND_COLORS
+    # Check if FONT_INFOTXT and other necessary constants exist
+    if 'NORMAL_COLORS' in globals() and 'COLORBLIND_COLORS' in globals():
+        if colorblind_mode:
+            current_color_scheme = COLORBLIND_COLORS
+        else:
+            current_color_scheme = NORMAL_COLORS
     else:
-        current_color_scheme = NORMAL_COLORS
+        # Fallback if constants.py is not loaded correctly
+        current_color_scheme = {'success': CRT_GREEN, 'warning': 'yellow', 'danger': 'red'}
 
 def get_color(color_type):
     """Gets color from current scheme."""
@@ -102,7 +161,7 @@ def cycle_to_next_tab():
     
     # Don't cycle if user is on config tab and hasn't switched away
     current_tab = get_current_tab()
-    if current_tab == 4 and config_tab_was_manually_selected:  # Config tab
+    if current_tab == 4 and config_tab_was_manually_selected: # Config tab
         update_status("Staying on config tab")
         return
     
@@ -115,18 +174,18 @@ def smart_focus_check(cpu_usage=0, cpu_temp=None, gpu_temp=None, latency=None):
     """Checks if smart focus should activate based on system conditions (only main 4 tabs)."""
     global smart_focus_active, focus_override_time, config_tab_was_manually_selected
     
-    if "Config" not in widgets:
-        return
-    
-    config = widgets["Config"]
-    
-    # Check if smart focus is enabled
-    if not config.get("focus_enabled", tb.BooleanVar(value=True)).get():
+    # Get config values from global CONFIG dictionary
+    focus_enabled = CONFIG.get("focus_enabled", True)
+    cpu_threshold = CONFIG.get("cpu_threshold", 80)
+    temp_threshold = CONFIG.get("temp_threshold", 75)
+    latency_threshold = CONFIG.get("latency_threshold", 200)
+
+    if not focus_enabled:
         return
     
     # Don't override if user is on config tab and hasn't switched away
     current_tab = get_current_tab()
-    if current_tab == 4 and config_tab_was_manually_selected:  # Config tab
+    if current_tab == 4 and config_tab_was_manually_selected: # Config tab
         return
     
     # Don't override if we recently had a focus override
@@ -135,18 +194,16 @@ def smart_focus_check(cpu_usage=0, cpu_temp=None, gpu_temp=None, latency=None):
         return
     
     focus_triggered = False
-    target_tab = 0  # Default to System Info
+    target_tab = 0 # Default to System Info
     reason = ""
     
     # Check CPU usage threshold
-    cpu_threshold = config.get("cpu_threshold", 80)
     if cpu_usage > cpu_threshold:
-        target_tab = 1  # Processing Stats tab
+        target_tab = 1 # Processing Stats tab
         reason = f"High CPU: {cpu_usage:.1f}%"
         focus_triggered = True
     
     # Check temperature thresholds
-    temp_threshold = config.get("temp_threshold", 75)
     max_temp = None
     if cpu_temp is not None:
         max_temp = cpu_temp
@@ -154,14 +211,13 @@ def smart_focus_check(cpu_usage=0, cpu_temp=None, gpu_temp=None, latency=None):
         max_temp = gpu_temp
         
     if max_temp and max_temp > temp_threshold:
-        target_tab = 3  # Temperature Stats tab
+        target_tab = 3 # Temperature Stats tab
         reason = f"High temp: {max_temp:.1f}°C"
         focus_triggered = True
     
     # Check network latency threshold
-    latency_threshold = config.get("latency_threshold", 200)
-    if latency and latency > latency_threshold:
-        target_tab = 2  # Network Stats tab
+    if latency is not None and latency > latency_threshold:
+        target_tab = 2 # Network Stats tab
         reason = f"High latency: {latency:.0f}ms"
         focus_triggered = True
     
@@ -176,37 +232,35 @@ def auto_cycle_tabs():
     """Handles automatic tab cycling (only main 4 tabs)."""
     global auto_cycle_timer, last_cycle_time, smart_focus_active, config_tab_was_manually_selected
     
-    if "Config" not in widgets:
-        root.after(5000, auto_cycle_tabs)  # Try again in 5 seconds
-        return
-    
-    config = widgets["Config"]
+    # Get config values from global CONFIG dictionary
+    cycle_enabled = CONFIG.get("cycle_enabled", False)
+    cycle_delay_sec = CONFIG.get("cycle_delay", 5)
     
     # Check if auto-cycling is enabled
-    if not config.get("cycle_enabled", tb.BooleanVar(value=False)).get():
-        root.after(1000, auto_cycle_tabs)  # Check again in 1 second
+    if not cycle_enabled:
+        root.after(1000, auto_cycle_tabs) # Check again in 1 second
         return
     
     # Don't cycle if smart focus is active
     if smart_focus_active:
-        smart_focus_active = False  # Reset after one cycle
-        cycle_delay = config.get("cycle_delay", 5) * 1000
-        root.after(cycle_delay, auto_cycle_tabs)
+        smart_focus_active = False # Reset after one cycle
+        cycle_delay_ms = cycle_delay_sec * 1000
+        root.after(cycle_delay_ms, auto_cycle_tabs)
         return
     
     # Don't cycle if user is on config tab and hasn't switched away
     current_tab = get_current_tab()
-    if current_tab == 4 and config_tab_was_manually_selected:  # Config tab
-        cycle_delay = config.get("cycle_delay", 5) * 1000
-        root.after(cycle_delay, auto_cycle_tabs)
+    if current_tab == 4 and config_tab_was_manually_selected: # Config tab
+        cycle_delay_ms = cycle_delay_sec * 1000
+        root.after(cycle_delay_ms, auto_cycle_tabs)
         return
     
     # Cycle to next tab (only main 4 tabs)
     cycle_to_next_tab()
     
     # Schedule next cycle
-    cycle_delay = config.get("cycle_delay", 5) * 1000
-    root.after(cycle_delay, auto_cycle_tabs)
+    cycle_delay_ms = cycle_delay_sec * 1000
+    root.after(cycle_delay_ms, auto_cycle_tabs)
 
 def update_status(message):
     """Updates the status label in the config tab."""
@@ -220,6 +274,9 @@ def update_status(message):
 # ==============================================================================
 # ==== Main GUI Setup
 # ==============================================================================
+# Load configuration before setting up the window to get monitor index
+load_config()
+
 root = tb.Window(themename="darkly")
 root.title("AlohaSnackBar Hardware Monitor")
 root.minsize(580, 450) # Set minimum size to maintain readability
@@ -236,9 +293,19 @@ try:
             root.overrideredirect(True)
             fullscreen = True
         else:
-            root.geometry(f"960x600+{monitor.x + 100}+{monitor.y + 100}")
+            # Center on the selected monitor if not setting fullscreen
+            w, h = 960, 600
+            x = monitor.x + (monitor.width - w) // 2
+            y = monitor.y + (monitor.height - h) // 2
+            root.geometry(f"{w}x{h}+{x}+{y}")
     else:
-        root.geometry("960x600")
+        # Default centering if monitor_idx is 0 or invalid
+        w, h = 960, 600
+        sw = root.winfo_screenwidth()
+        sh = root.winfo_screenheight()
+        x = (sw - w) // 2
+        y = (sh - h) // 2
+        root.geometry(f"{w}x{h}+{x}+{y}")
 except Exception:
     root.geometry("960x600")
 
@@ -297,15 +364,19 @@ latest_history = {}
 # ==== Helper Functions
 # ==============================================================================
 def get_temp_color(value):
+    # Uses CONFIG for dynamic threshold
+    temp_threshold = CONFIG.get("temp_threshold", 75)
     if value is None: return "default"
-    if value < 50: return "success"
-    elif value < 90: return "warning"
-    else: return "danger"
+    if value < temp_threshold * 0.75: return get_color('success')
+    elif value < temp_threshold: return get_color('warning')
+    else: return get_color('danger')
 
 def get_usage_color(value):
+    # Uses CONFIG for dynamic threshold
+    cpu_threshold = CONFIG.get("cpu_threshold", 80)
     if value is None: return get_color('success')
-    if value < 60: return get_color('success')
-    elif value < 80: return get_color('warning')
+    if value < cpu_threshold * 0.75: return get_color('success')
+    elif value < cpu_threshold: return get_color('warning')
     else: return get_color('danger')
 
 def get_net_color(value):
@@ -315,37 +386,75 @@ def get_net_color(value):
     else: return get_color('danger')
 
 def get_latency_color(value):
+    # Uses CONFIG for dynamic threshold
+    latency_threshold = CONFIG.get("latency_threshold", 200)
     # Colors for latency (lower is better)
     if value is None: return get_color('success')
-    if value < 60: return get_color('success')
-    elif value < 150: return get_color('warning')
+    if value < latency_threshold * 0.3: return get_color('success')
+    elif value < latency_threshold: return get_color('warning')
     else: return get_color('danger')
 
 # ==============================================================================
 # ==== Configuration Change Handlers
 # ==============================================================================
+# ==============================================================================
+# ==== Configuration Change Handlers
+# ==============================================================================
 def on_colorblind_change():
-    """Handles colorblind mode toggle."""
-    if "Config" in widgets:
+    """Handles colorblind mode toggle and updates global config."""
+    if "Config" in widgets and "colorblind_mode" in widgets["Config"]:
+        # Read directly from the variable object
         colorblind_mode = widgets["Config"]["colorblind_mode"].get()
+        CONFIG["colorblind_mode"] = colorblind_mode # Update global config
         update_color_scheme(colorblind_mode)
         mode_text = "enabled" if colorblind_mode else "disabled"
         update_status(f"Color blind {mode_text}")
-        # Force a redraw of all colored elements
-        if latest_history:
-            # This will trigger color updates on next GUI refresh
-            pass
+        # Force a redraw of all colored elements (will happen in next update_gui cycle)
 
 def setup_config_bindings():
-    """Sets up bindings for configuration changes."""
+    """Sets up bindings and loads initial values for configuration controls.
+    
+    FIX: Accesses the variable objects (tk.BooleanVar, tk.IntVar) directly
+    using the simple key names and ensures they support .set() before calling.
+    """
     if "Config" in widgets:
-        config = widgets["Config"]
-        # Bind colorblind mode change
-        if "colorblind_mode" in config:
-            config["colorblind_mode"].trace('w', lambda *args: on_colorblind_change())
-        # Bind Apply Settings button
-        if "apply_button" in config:
-            config["apply_button"].configure(command=open_startup_settings)
+        config_frame = widgets["Config"]
+        
+        # 1. Load initial values from global CONFIG dictionary
+        
+        # Boolean variables (colorblind_mode, cycle_enabled, focus_enabled)
+        for key in ["colorblind_mode", "cycle_enabled", "focus_enabled"]:
+            if key in config_frame:
+                # IMPORTANT: Check if the retrieved item is a variable object (has .set method)
+                # and then retrieve the value from CONFIG.
+                if hasattr(config_frame[key], 'set'):
+                    default = False if key in ["colorblind_mode", "cycle_enabled"] else True
+                    config_frame[key].set(CONFIG.get(key, default))
+        
+        # Integer variables (cycle_delay, process_count)
+        for key, default in [("cycle_delay", 5), ("process_count", 5)]:
+            if key in config_frame:
+                # IMPORTANT: Check if the retrieved item is a variable object (has .set method)
+                # and then retrieve the value from CONFIG.
+                if hasattr(config_frame[key], 'set'):
+                    config_frame[key].set(CONFIG.get(key, default))
+                else:
+                    # Fallback for debugging: Print what type it is if it fails
+                    print(f"Warning: Config key '{key}' contains object of type '{type(config_frame[key]).__name__}', expected tk.IntVar.")
+
+        # 2. Bind trace for immediate color changes
+        # Ensure the variable object exists before attempting to trace it.
+        if "colorblind_mode" in config_frame and hasattr(config_frame["colorblind_mode"], 'trace'):
+            config_frame["colorblind_mode"].trace('w', lambda *args: on_colorblind_change())
+            
+        # 3. Bind the Apply Settings button to open startup_set.py
+        if "apply_button" in config_frame:
+            config_frame["apply_button"].configure(command=open_startup_settings)
+            
+        # 4. Initialize color scheme based on loaded config
+        if "colorblind_mode" in config_frame and hasattr(config_frame["colorblind_mode"], 'get'):
+            on_colorblind_change()
+
 
 # ==============================================================================
 # ==== Fullscreen & Resize Management
@@ -408,7 +517,7 @@ def _update_metric_display(key, history):
     if key == "CPU":
         freq_tuple = core.get_cpu_freq()
         freq_text = f"{freq_tuple[0]:>4.2f} GHz" if freq_tuple and freq_tuple[0] else " N/A "
-        lbl.config(foreground=lbl_color, text=f"CPU Usage: {val:>5.1f}%  CPU Speed: {freq_text}")
+        lbl.config(foreground=lbl_color, text=f"CPU Usage: {val:>5.1f}%  CPU Speed: {freq_text}")
     elif key == "RAM":
         ram_info = core.get_ram_info()
         used = ram_info.get('used', 0)
@@ -421,7 +530,7 @@ def _update_metric_display(key, history):
             overlay_lbl.place_configure(relx=new_relx)
     else: # GPU
         gpu_clocks = core.get_gpu_clock_speed()
-        lbl.config(foreground=lbl_color, text=f"{key} Usage: {val:>5.1f}%  Clock Speed: {gpu_clocks} Mhz")
+        lbl.config(foreground=lbl_color, text=f"{key} Usage: {val:>5.1f}%  Clock Speed: {gpu_clocks} Mhz")
 
     style.configure(bar._style_name, background=lbl_color)
     bar["value"] = val
@@ -455,7 +564,6 @@ def update_gui():
                     crt_grapher.update_dual_temp_labels(cpu_temp_current, gpu_temp_current)
                     crt_grapher.draw_dual_temp(cpu_temp_list, gpu_temp_list)
             except (IndexError, AttributeError) as e:
-                # Handle cases where temperature data might not be available
                 pass
             
             # Trigger smart focus check with current values
@@ -474,9 +582,7 @@ def update_heavy_stats():
     def worker():
         try:
             # Get process count from config
-            process_limit = 5  # Default
-            if "Config" in widgets:
-                process_limit = widgets["Config"].get("process_count", 5)
+            process_limit = CONFIG.get("process_count", 5)
             
             # Fetch all data in the background
             cpu_info = core.get_cpu_info()
@@ -488,7 +594,7 @@ def update_heavy_stats():
             procs = core.get_top_processes(limit=process_limit)
             load_avg = core.get_load_average()
             uptime = core.get_uptime()
-            top_text = "PID      USER          VIRT      RES   CPU%   MEM%   NAME\n" + "\n".join(procs)
+            top_text = "PID      USER          VIRT      RES   CPU%   MEM%   NAME\n" + "\n".join(procs)
 
             def apply_updates():
                 # --- Sys Info Tab ---
@@ -506,13 +612,13 @@ def update_heavy_stats():
                 net_out = network_results['out_MB']
                 lat = network_results['latency_ms']
                 info_labels["Net IN"].config(text=f"Net Download:{net_in:>6.2f} MB/s", foreground=get_net_color(net_in))
-                info_labels["Net OUT"].config(text=f"Net Upload:  {net_out:>6.2f} MB/s", foreground=get_net_color(net_out))
-                lat_text = f"Latency: {lat:>5.1f} ms" if lat is not None else "Latency:     N/A"
+                info_labels["Net OUT"].config(text=f"Net Upload:  {net_out:>6.2f} MB/s", foreground=get_net_color(net_out))
+                lat_text = f"Latency: {lat:>5.1f} ms" if lat is not None else "Latency:     N/A"
                 info_labels["Latency"].config(text=lat_text, foreground=get_latency_color(lat))
                 
                 # --- Processing Stats Tab ---
                 cpu_labels = widgets["CPU Stats"]
-                cpu_labels["Info"].config(text=f"CPU Load Avg: {load_avg}   Uptime: {uptime}")
+                cpu_labels["Info"].config(text=f"CPU Load Avg: {load_avg}   Uptime: {uptime}")
                 cpu_labels["Top Processes"].config(text=top_text)
                 
                 # --- Temperature Stats Tab ---
@@ -532,6 +638,7 @@ def update_heavy_stats():
                         temp_widgets["Temp_Label"].insert("end", " | ")
                         temp_widgets["Temp_Label"].insert("end", f"GPU: {gpu_text}", "gpu")
 
+                        # Assuming CRT_GREEN is defined in constants
                         temp_widgets["Temp_Label"].tag_config("cpu", foreground=CRT_GREEN)
                         temp_widgets["Temp_Label"].tag_config("gpu", foreground="white")
 
@@ -548,6 +655,7 @@ def update_network_stats():
     def worker():
         global network_results
         try:
+            # Assuming NETWORK_INTERFACE, PING_HOST, and PING_COUNT are imported from constants
             net_in, net_out, avg_latency = core.net_usage_latency(
                 interface=NETWORK_INTERFACE,
                 ping_host_addr=PING_HOST,
@@ -571,6 +679,7 @@ def update_time():
 # ==== Application Start
 # ==============================================================================
 def start_app():
+    # Assuming REFRESH_MS is imported from constants
     data_fetcher = ThreadedDataFetcher(data_queue, interval=REFRESH_MS / 1000)
     data_fetcher.start()
     update_network_stats()
@@ -590,15 +699,33 @@ def start_app():
 if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
     os.chdir(script_dir)
+    
+    # Check for config file and run setup if not found
     if not os.path.exists("startup_config.txt"):
         print("First launch: running startup setup...")
         try:
-            subprocess.run([sys.executable, "startup_set.py"], check=True)
+            # Determine which file to run (.exe takes precedence)
+            script_path = os.path.abspath("startup_set.py")
+            exe_path = os.path.abspath("startup_set.exe")
+            
+            if os.path.exists(exe_path):
+                args = [exe_path]
+            elif os.path.exists(script_path):
+                args = [sys.executable, script_path]
+            else:
+                sys.exit("Error: startup_set.py or startup_set.exe not found. Exiting.")
+            
+            subprocess.run(args, check=True)
+            
+            # Reload config after setup completes
+            load_config()
+            
             if not os.path.exists("startup_config.txt"):
                 sys.exit("Setup was not completed. Exiting.")
         except Exception as e:
-            print(f"Could not run startup_set.py: {e}")
+            print(f"Could not run setup script: {e}")
             sys.exit(1)
 
+    # The config is loaded above, so startup_loader can use it.
     startup_loader(root, widgets, style, on_complete=start_app)
     root.mainloop()

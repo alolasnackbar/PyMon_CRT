@@ -8,7 +8,6 @@ import os
 import sys
 import subprocess
 import time
-import json
 
 from constants import *
 from crt_graphics import CRTGrapher, ThreadedDataFetcher
@@ -33,171 +32,17 @@ config_tab_was_manually_selected = False
 MAIN_TABS_COUNT = 4  # Only cycle through first 4 tabs (excluding config)
 current_color_scheme = NORMAL_COLORS
 
-# --- Configuration Management ---
-def load_config():
-    """Load configuration from startup_config.txt."""
-    config = DEFAULT_CONFIG.copy()
-    try:
-        with open("startup_config.txt", "r") as f:
-            content = f.read().strip()
-            
-            # Try to parse as JSON first (new format)
-            try:
-                loaded_config = json.loads(content)
-                if isinstance(loaded_config, dict):
-                    config.update(loaded_config)
-                    return config
-            except json.JSONDecodeError:
-                pass
-            
-            # Fall back to old format (just monitor index)
-            try:
-                config["monitor_index"] = int(content)
-            except ValueError:
-                pass
-                
-    except FileNotFoundError:
-        pass
-    
-    return config
-
-def save_config():
-    """Save current configuration to startup_config.txt."""
-    if "Config" not in widgets:
-        return
-    
-    config = DEFAULT_CONFIG.copy()
-    config_widgets = widgets["Config"]
-    
-    # Get current monitor index
-    config["monitor_index"] = get_startup_monitor()
-    
-    # Get config values from widgets
-    config["process_count"] = config_widgets.get("process_count", 5)
-    config["cycle_enabled"] = config_widgets.get("cycle_enabled", tb.BooleanVar(value=False)).get()
-    config["cycle_delay"] = config_widgets.get("cycle_delay", 5)
-    config["focus_enabled"] = config_widgets.get("focus_enabled", tb.BooleanVar(value=True)).get()
-    config["cpu_threshold"] = config_widgets.get("cpu_threshold", 80)
-    config["temp_threshold"] = config_widgets.get("temp_threshold", 75)
-    config["latency_threshold"] = config_widgets.get("latency_threshold", 200)
-    config["colorblind_mode"] = config_widgets.get("colorblind_mode", tb.BooleanVar(value=False)).get()
-    
-    try:
-        with open("startup_config.txt", "w") as f:
-            json.dump(config, f, indent=2)
-        update_status("Config saved")
-    except Exception as e:
-        print(f"Error saving config: {e}")
-        update_status("Save failed")
-
-def apply_loaded_config(config):
-    """Apply loaded configuration to widgets."""
-    if "Config" not in widgets:
-        return
-    
-    config_widgets = widgets["Config"]
-    
-    try:
-        # Apply process count
-        if "process_slider" in config_widgets:
-            config_widgets["process_slider"].set(config.get("process_count", 5))
-            config_widgets["process_count"] = config.get("process_count", 5)
-        
-        # Apply cycle settings
-        config_widgets.get("cycle_enabled", tb.BooleanVar()).set(config.get("cycle_enabled", False))
-        if "cycle_slider" in config_widgets:
-            config_widgets["cycle_slider"].set(config.get("cycle_delay", 5))
-            config_widgets["cycle_delay"] = config.get("cycle_delay", 5)
-        
-        # Apply focus settings
-        config_widgets.get("focus_enabled", tb.BooleanVar()).set(config.get("focus_enabled", True))
-        config_widgets["cpu_threshold"] = config.get("cpu_threshold", 80)
-        config_widgets["temp_threshold"] = config.get("temp_threshold", 75)
-        config_widgets["latency_threshold"] = config.get("latency_threshold", 200)
-        
-        # Apply colorblind mode
-        colorblind_mode = config.get("colorblind_mode", False)
-        config_widgets.get("colorblind_mode", tb.BooleanVar()).set(colorblind_mode)
-        update_color_scheme(colorblind_mode)
-        
-        update_status("Config loaded")
-    except Exception as e:
-        print(f"Error applying config: {e}")
-        update_status("Config error")
-
-def save_config():
-    """Save current configuration to startup_config.txt."""
-    if "Config" not in widgets:
-        return
-    
-    config = DEFAULT_CONFIG.copy()
-    config_widgets = widgets["Config"]
-    
-    # Get current monitor index
-    config["monitor_index"] = get_startup_monitor()
-    
-    # Get config values from widgets
-    config["process_count"] = config_widgets.get("process_count", 5)
-    config["cycle_enabled"] = config_widgets.get("cycle_enabled", tb.BooleanVar(value=False)).get()
-    config["cycle_delay"] = config_widgets.get("cycle_delay", 5)
-    config["focus_enabled"] = config_widgets.get("focus_enabled", tb.BooleanVar(value=True)).get()
-    config["cpu_threshold"] = config_widgets.get("cpu_threshold", 80)
-    config["temp_threshold"] = config_widgets.get("temp_threshold", 75)
-    config["latency_threshold"] = config_widgets.get("latency_threshold", 200)
-    config["colorblind_mode"] = config_widgets.get("colorblind_mode", tb.BooleanVar(value=False)).get()
-    
-    try:
-        with open("startup_config.txt", "w") as f:
-            json.dump(config, f, indent=2)
-        update_status("Config saved")
-    except Exception as e:
-        print(f"Error saving config: {e}")
-        update_status("Save failed")
-
-def apply_loaded_config(config):
-    """Apply loaded configuration to widgets."""
-    if "Config" not in widgets:
-        return
-    
-    config_widgets = widgets["Config"]
-    
-    try:
-        # Apply process count
-        if "process_slider" in config_widgets:
-            config_widgets["process_slider"].set(config.get("process_count", 5))
-            config_widgets["process_count"] = config.get("process_count", 5)
-        
-        # Apply cycle settings
-        config_widgets.get("cycle_enabled", tb.BooleanVar()).set(config.get("cycle_enabled", False))
-        if "cycle_slider" in config_widgets:
-            config_widgets["cycle_slider"].set(config.get("cycle_delay", 5))
-            config_widgets["cycle_delay"] = config.get("cycle_delay", 5)
-        
-        # Apply focus settings
-        config_widgets.get("focus_enabled", tb.BooleanVar()).set(config.get("focus_enabled", True))
-        config_widgets["cpu_threshold"] = config.get("cpu_threshold", 80)
-        config_widgets["temp_threshold"] = config.get("temp_threshold", 75)
-        config_widgets["latency_threshold"] = config.get("latency_threshold", 200)
-        
-        # Apply colorblind mode
-        colorblind_mode = config.get("colorblind_mode", False)
-        config_widgets.get("colorblind_mode", tb.BooleanVar()).set(colorblind_mode)
-        update_color_scheme(colorblind_mode)
-        
-        update_status("Config loaded")
-    except Exception as e:
-        print(f"Error applying config: {e}")
-        update_status("Config error")
-
 # --- Startup & Configuration ---
 def get_startup_monitor():
     """Reads the selected monitor index from the config file."""
-    config = load_config()
-    return config.get("monitor_index", 0)
+    try:
+        with open("startup_config.txt", "r") as f:
+            return int(f.read().strip())
+    except (FileNotFoundError, ValueError):
+        return 0  # Default to current/primary monitor
 
 def open_startup_settings():
-    """Save config and re-run startup settings script."""
-    save_config()
+    """Closes the current GUI and re-runs the startup settings script."""
     root.destroy()
     try:
         subprocess.run([sys.executable, "startup_set.py"], check=True)
@@ -486,8 +331,10 @@ def on_colorblind_change():
         update_color_scheme(colorblind_mode)
         mode_text = "enabled" if colorblind_mode else "disabled"
         update_status(f"Color blind {mode_text}")
-        # Auto-save config when changed
-        root.after(100, save_config)
+        # Force a redraw of all colored elements
+        if latest_history:
+            # This will trigger color updates on next GUI refresh
+            pass
 
 def setup_config_bindings():
     """Sets up bindings for configuration changes."""
@@ -499,15 +346,6 @@ def setup_config_bindings():
         # Bind Apply Settings button
         if "apply_button" in config:
             config["apply_button"].configure(command=open_startup_settings)
-        
-        # Auto-save on other config changes
-        def on_config_change(*args):
-            root.after(500, save_config)  # Delay to batch changes
-        
-        if "cycle_enabled" in config:
-            config["cycle_enabled"].trace('w', on_config_change)
-        if "focus_enabled" in config:
-            config["focus_enabled"].trace('w', on_config_change)
 
 # ==============================================================================
 # ==== Fullscreen & Resize Management
@@ -743,10 +581,24 @@ def start_app():
     # Set up configuration bindings after widgets are created
     setup_config_bindings()
     
-    # Load and apply saved configuration
-    saved_config = load_config()
-    apply_loaded_config(saved_config)
-    
     # Start auto-cycling after a short delay
     root.after(2000, auto_cycle_tabs)
     
+    # Initial status
+    update_status("Monitoring active")
+
+if __name__ == "__main__":
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    os.chdir(script_dir)
+    if not os.path.exists("startup_config.txt"):
+        print("First launch: running startup setup...")
+        try:
+            subprocess.run([sys.executable, "startup_set.py"], check=True)
+            if not os.path.exists("startup_config.txt"):
+                sys.exit("Setup was not completed. Exiting.")
+        except Exception as e:
+            print(f"Could not run startup_set.py: {e}")
+            sys.exit(1)
+
+    startup_loader(root, widgets, style, on_complete=start_app)
+    root.mainloop()

@@ -2,11 +2,124 @@ import ttkbootstrap as tb
 import tkinter as tk
 from screeninfo import get_monitors
 from ttkbootstrap.constants import *
-from constants import *
+# from constants import * # Assuming constants.py is available
 import os
 import sys
 import subprocess
 import shutil
+import json
+
+# --- Placeholder Constants (Since the actual file is not provided) ---
+# NOTE: You must have a constants.py file with these defined for the code to run!
+try:
+    # Attempt to load the actual constants
+    from constants import FONT_INFOTXT, FONT_TITLE, CRT_GREEN
+except ImportError:
+    # Define placeholders if constants.py is missing (for testing/safety)
+    FONT_INFOTXT = ("TkDefaultFont", 10)
+    FONT_TITLE = ("TkDefaultFont", 20, "bold")
+    CRT_GREEN = "#00FF00"
+# -------------------------------------------------------------------
+
+# ==== Load README content for patch notes ====
+def load_patch_notes():
+    """Load patch notes from README.md file or use a default."""
+    default_patch_notes = """
+Current Patch Notes (Default):
+- Version 0.0.6
+- New: Configuration persistence in startup_config.txt
+- New: Enhanced temperature CRT graphics
+- New: Auto-cycling and smart focus with user settings
+- Fix: Button text preservation during startup loader
+- Fix: Improved config saving and loading
+- Enhanced: Fullscreen behavior on multi-monitor setups
+
+Note: Check README.md for complete changelog and documentation.
+"""
+
+    try:
+        if os.path.exists("README.md"):
+            with open("README.md", "r", encoding="utf-8") as f:
+                readme_content = f.read()
+
+            # Extract a relevant section from README (look for version info or changelog)
+            lines = readme_content.split('\n')
+            patch_section = []
+            in_changelog = False
+
+            for line in lines:
+                if any(keyword in line.lower() for keyword in ['version', 'changelog', 'update', 'patch', 'release']):
+                    in_changelog = True
+                    patch_section.append(line)
+                elif in_changelog and line.strip():
+                    # Stop if we encounter another major heading (e.g., starts with #)
+                    if line.strip().startswith('#') and len(patch_section) > 5:
+                        break
+                    patch_section.append(line)
+                    if len(patch_section) >= 15:  # Limit to prevent overflow
+                        break
+                elif in_changelog and not line.strip():
+                    if len(patch_section) > 5:  # Stop if we have enough content
+                        break
+
+            if patch_section:
+                return "Patch Notes from README.md:\n" + "\n".join(patch_section)
+
+    except Exception as e:
+        print(f"Error reading README.md: {e}")
+
+    return default_patch_notes
+
+# ==== Configuration Management ====
+def load_config():
+    """Load existing configuration, handling both old and new (JSON) formats."""
+    default_config = {
+        "monitor_index": 0,
+        "process_count": 5,
+        "cycle_enabled": False,
+        "cycle_delay": 5,
+        "focus_enabled": True,
+        "cpu_threshold": 80,
+        "temp_threshold": 75,
+        "latency_threshold": 200,
+        "colorblind_mode": False
+    }
+
+    try:
+        with open("startup_config.txt", "r") as f:
+            content = f.read().strip()
+            try:
+                # Try to load as JSON (new format)
+                loaded_config = json.loads(content)
+                if isinstance(loaded_config, dict):
+                    # Ensure loaded values are of the correct type (e.g., monitor_index is int)
+                    if "monitor_index" in loaded_config:
+                         try:
+                            loaded_config["monitor_index"] = int(loaded_config["monitor_index"])
+                         except (ValueError, TypeError):
+                             pass # Keep as-is or let default override
+
+                    default_config.update(loaded_config)
+            except json.JSONDecodeError:
+                # Fallback: Old format - just monitor index (plain text)
+                try:
+                    default_config["monitor_index"] = int(content)
+                except ValueError:
+                    pass
+    except FileNotFoundError:
+        pass
+
+    return default_config
+
+def save_config(config):
+    """Save configuration to file in JSON format."""
+    try:
+        with open("startup_config.txt", "w") as f:
+            # Ensure monitor_index is an integer for consistent storage
+            config["monitor_index"] = int(config["monitor_index"])
+            json.dump(config, f, indent=2)
+    except Exception as e:
+        print(f"Error saving config: {e}")
 
 # ==== Main GUI setup ====
 root = tb.Window(themename="darkly")
@@ -26,6 +139,9 @@ style = tb.Style()
 style.configure("TCheckbutton", font=FONT_INFOTXT)
 bg_color = style.lookup('TNotebook.Tab', 'background')
 fg_color = style.lookup('TLabel', 'foreground')
+
+# Load current configuration
+current_config = load_config()
 
 # Create a main frame to center all content
 main_frame = tk.Frame(root, bg=bg_color)
@@ -51,23 +167,13 @@ tb.Separator(main_frame, orient="horizontal").pack(fill="x", padx=5, pady=10)
 content_frame = tk.Frame(main_frame, bg=bg_color)
 content_frame.pack(expand=True, fill=BOTH)
 
-# Left side: Patch Notes
+# Left side: Patch Notes (now from README)
 patch_notes_frame = tb.LabelFrame(content_frame, text="Release Version Details", bootstyle="success")
 patch_notes_frame.pack(side=LEFT, fill=BOTH, expand=True, padx=(5, 10), pady=5)
 
-patch_notes_text = """
-Current Patch Notes:
-- Version 0.0.5
-- New: temp cpu/gpu added, crt_graphics applied
-- New: config tab added for notebook customization 
-- Fix: Improved fullscreen behavior on multi-monitor setups, 
-- Adjusted: fine tuned and optimized gui widgets
-- Deprecating: File menu will be moved into config tab for styling issues
+# Load patch notes from README
+patch_notes_text = load_patch_notes()
 
-________  unavailable until further notice __________
-- temp cpu/gpu added, need more research on meters
-- net stats limited
-"""
 patch_notes_label = tb.Label(
     patch_notes_frame,
     text=patch_notes_text,
@@ -82,8 +188,9 @@ patch_notes_label.pack(anchor="w", padx=10, pady=5)
 controls_frame = tb.LabelFrame(content_frame, text="Settings and Controls", bootstyle="success")
 controls_frame.pack(side=RIGHT, fill=BOTH, expand=True, padx=(10, 5), pady=5)
 
-# Variable to hold the selected monitor value
-monitor_choice = tk.StringVar(value="0") # Default to current screen (index 0)
+# Variable to hold the selected monitor value. The value is set based on loaded config.
+# Note: Monitor index in config is 0 for Current Display, 1 for Display 1, 2 for Display 2, etc.
+monitor_choice = tk.StringVar(value=str(current_config.get("monitor_index", 0)))
 
 # Radio button for starting on the current display
 start_options_label = tb.Label(
@@ -96,6 +203,7 @@ start_options_label = tb.Label(
 )
 start_options_label.pack(anchor="w", padx=10, pady=(10, 0))
 
+# Value 0 is reserved for "Current Display"
 default_radio = tb.Radiobutton(
     controls_frame,
     text="Current Display",
@@ -105,11 +213,13 @@ default_radio = tb.Radiobutton(
 )
 default_radio.pack(anchor="w", padx=10, pady=5)
 
-# Get detected monitors and create radiobuttons
+# Get detected monitors and create radiobuttons for specific displays
 try:
     monitors = get_monitors()
     if monitors:
+        # i starts at 0, display index is i + 1, and value is i + 1 (1 for Display 1, 2 for Display 2)
         for i, monitor in enumerate(monitors):
+            # i + 1 is the display number/value for the radiobutton
             display_text = f"Display {i + 1}"
             if monitor.is_primary:
                 display_text += " (Primary)"
@@ -124,7 +234,7 @@ try:
     else:
         no_display_label = tb.Label(
             controls_frame,
-            text="No displays detected. Defaulting to main display.",
+            text="No external displays detected. Defaulting to main display.",
             font=FONT_INFOTXT,
             foreground=fg_color
         )
@@ -142,31 +252,65 @@ tb.Separator(controls_frame, orient="horizontal").pack(fill="x", padx=10, pady=1
 
 ## Startup and Cleanup Logic
 
+def get_target_file():
+    """Determine the path and type of the file to execute (EXE takes precedence)."""
+    script_path = os.path.abspath("gui.py")
+    exe_path = os.path.abspath("gui.exe")
+
+    if os.path.exists(exe_path):
+        return exe_path, True # Path, is_exe
+    elif os.path.exists(script_path):
+        return script_path, False # Path, is_exe
+    else:
+        return None, None
+
+
 def setup_startup_boot():
     """Sets up the application to run automatically on system boot."""
-    script_path = os.path.abspath("gui.py")
+    target_path, is_exe = get_target_file()
+
+    if target_path is None:
+        tb.dialogs.Messagebox.show_error("Neither gui.py nor gui.exe found in current directory. Cannot set startup.", "Error")
+        return
+
     if sys.platform.startswith('win'):
         try:
             startup_folder = os.path.join(os.getenv('APPDATA'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
             shortcut_path = os.path.join(startup_folder, "HardwareMonitor.bat")
+            
             with open(shortcut_path, "w") as f:
-                f.write(f'@echo off\ncd /d "{os.path.dirname(script_path)}"\nstart "" py "{os.path.basename(script_path)}"\n') #use for now
-                #f.write(f'@echo off\ncd /d "{os.path.dirname(script_path)}"\nstart "" pythonw "{os.path.basename(script_path)}"\n')
-                #f.write(f'@echo off\ncd /d "{os.path.dirname(script_path)}"\npy "{os.path.basename(script_path)}" && exit || PAUSE')
-            print("Successfully configured for Windows startup.")
-            tb.dialogs.Messagebox.show_info(f"Startup configured! The app will start on boot.\nShortcut created at: {shortcut_path}", "Success")
+                # Use 'start' to run without blocking the startup process
+                if is_exe:
+                    # For .exe files: simply execute the file
+                    f.write(f'@echo off\ncd /d "{os.path.dirname(target_path)}"\nstart "" "{os.path.basename(target_path)}"\n')
+                else:
+                    # For .py files: use 'py' or 'python'
+                    f.write(f'@echo off\ncd /d "{os.path.dirname(target_path)}"\nstart "" py "{os.path.basename(target_path)}"\n')
+            
+            file_type = ".exe" if is_exe else ".py"
+            tb.dialogs.Messagebox.show_info(f"Startup configured! The app will start on boot.\nUsing: {file_type} from {os.path.dirname(target_path)}\nShortcut created at: {shortcut_path}", "Success")
+            print(f"Successfully configured for Windows startup using {file_type}")
         except Exception as e:
             tb.dialogs.Messagebox.show_error(f"Failed to configure startup: {e}", "Error")
             print(f"Error setting up Windows startup: {e}")
+            
     elif sys.platform.startswith('linux'):
         try:
             autostart_dir = os.path.join(os.path.expanduser('~'), '.config', 'autostart')
             if not os.path.exists(autostart_dir):
                 os.makedirs(autostart_dir)
             desktop_file_path = os.path.join(autostart_dir, "hardware-monitor.desktop")
+            
+            if is_exe:
+                # For compiled executables, the path is the command
+                exec_command = target_path
+            else:
+                # For Python scripts, use the Python interpreter
+                exec_command = f"{sys.executable} {target_path}"
+                
             desktop_content = f"""[Desktop Entry]
 Type=Application
-Exec={sys.executable} {script_path}
+Exec={exec_command}
 Hidden=false
 NoDisplay=false
 X-GNOME-Autostart-enabled=true
@@ -175,17 +319,31 @@ Comment[en_US]=Monitors system hardware usage
 """
             with open(desktop_file_path, "w") as f:
                 f.write(desktop_content)
-            print("Successfully configured for Linux startup.")
-            tb.dialogs.Messagebox.show_info("Startup configured! The app will start on boot.", "Success")
+            
+            file_type = ".exe" if is_exe else ".py"
+            tb.dialogs.Messagebox.show_info(f"Startup configured! The app will start on boot.\nUsing: {file_type}", "Success")
+            print(f"Successfully configured for Linux startup using {file_type}")
         except Exception as e:
             tb.dialogs.Messagebox.show_error(f"Failed to configure startup: {e}", "Error")
             print(f"Error setting up Linux startup: {e}")
+            
     elif sys.platform == 'darwin':
         try:
             plist_dir = os.path.join(os.path.expanduser('~'), 'Library', 'LaunchAgents')
             if not os.path.exists(plist_dir):
                 os.makedirs(plist_dir)
             plist_path = os.path.join(plist_dir, "com.alohasnackbar.hwmonitor.plist")
+            
+            if is_exe:
+                program_args = f"""    <array>
+        <string>{target_path}</string>
+    </array>"""
+            else:
+                program_args = f"""    <array>
+        <string>{sys.executable}</string>
+        <string>{target_path}</string>
+    </array>"""
+            
             plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -193,10 +351,7 @@ Comment[en_US]=Monitors system hardware usage
     <key>Label</key>
     <string>com.alohasnackbar.hwmonitor</string>
     <key>ProgramArguments</key>
-    <array>
-        <string>{sys.executable}</string>
-        <string>{script_path}</string>
-    </array>
+{program_args}
     <key>RunAtLoad</key>
     <true/>
 </dict>
@@ -204,8 +359,10 @@ Comment[en_US]=Monitors system hardware usage
 """
             with open(plist_path, "w") as f:
                 f.write(plist_content)
-            print("Successfully configured for macOS startup.")
-            tb.dialogs.Messagebox.show_info("Startup configured! The app will start on boot.", "Success")
+            
+            file_type = ".exe" if is_exe else ".py"
+            tb.dialogs.Messagebox.show_info(f"Startup configured! The app will start on boot.\nUsing: {file_type}", "Success")
+            print(f"Successfully configured for macOS startup using {file_type}")
         except Exception as e:
             tb.dialogs.Messagebox.show_error(f"Failed to configure startup: {e}", "Error")
             print(f"Error setting up macOS startup: {e}")
@@ -216,42 +373,56 @@ Comment[en_US]=Monitors system hardware usage
 
 def clear_startup_and_cache():
     """Removes startup configurations and data files."""
+    cleared_startup = False
+    
+    # 1. Clear OS-specific startup files
     if sys.platform.startswith('win'):
         try:
             startup_folder = os.path.join(os.getenv('APPDATA'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
             bat_path = os.path.join(startup_folder, "HardwareMonitor.bat")
             if os.path.exists(bat_path):
                 os.remove(bat_path)
-            print("Removed Windows startup file.")
+                print("Removed Windows startup file.")
+                cleared_startup = True
         except Exception as e:
             print(f"Error removing Windows startup file: {e}")
+            
     elif sys.platform.startswith('linux'):
         try:
             autostart_dir = os.path.join(os.path.expanduser('~'), '.config', 'autostart')
             desktop_file_path = os.path.join(autostart_dir, "hardware-monitor.desktop")
             if os.path.exists(desktop_file_path):
                 os.remove(desktop_file_path)
-            print("Removed Linux startup file.")
+                print("Removed Linux startup file.")
+                cleared_startup = True
         except Exception as e:
             print(f"Error removing Linux startup file: {e}")
+            
     elif sys.platform == 'darwin':
         try:
             plist_dir = os.path.join(os.path.expanduser('~'), 'Library', 'LaunchAgents')
             plist_path = os.path.join(plist_dir, "com.alohasnackbar.hwmonitor.plist")
             if os.path.exists(plist_path):
                 os.remove(plist_path)
-            print("Removed macOS startup file.")
+                print("Removed macOS startup file.")
+                cleared_startup = True
         except Exception as e:
             print(f"Error removing macOS startup file: {e}")
 
+    # 2. Clear local configuration/cache file
+    cleared_cache = False
     try:
         if os.path.exists("startup_config.txt"):
             os.remove("startup_config.txt")
             print("Removed startup_config.txt.")
+            cleared_cache = True
     except Exception as e:
-        print(f"Error removing local cache files: {e}")
-
-    tb.dialogs.Messagebox.show_info("Startup configuration and local cache files have been removed.", "Cleanup Complete")
+        print(f"Error removing local cache file: {e}")
+        
+    if cleared_startup or cleared_cache:
+        tb.dialogs.Messagebox.show_info("Startup configuration and local cache files have been removed.", "Cleanup Complete")
+    else:
+        tb.dialogs.Messagebox.show_info("No startup configuration or local cache files were found to remove.", "Cleanup Complete")
 
 # Buttons for startup and cleanup
 button_frame = tk.Frame(controls_frame, bg=bg_color)
@@ -277,19 +448,37 @@ tb.Separator(controls_frame, orient="horizontal").pack(fill="x", padx=10, pady=1
 
 ## Main App Button
 def save_and_close():
-    selected_monitor = monitor_choice.get()
-    try:
-        with open("startup_config.txt", "w") as f:
-            f.write(selected_monitor)
-    except IOError as e:
-        print(f"Error writing startup config file: {e}")
+    """Save configuration and start the main application."""
+    # 1. Update monitor index in config
+    # The value from the StringVar is a string (e.g., "0", "1", "2")
+    current_config["monitor_index"] = int(monitor_choice.get())
+    
+    # 2. Save the updated configuration to JSON file
+    save_config(current_config)
+    
+    # 3. Destroy the setup window
     root.destroy()
-    try:
-        subprocess.run([sys.executable, "gui.py"], check=True)
-    except FileNotFoundError:
-        print("Error: gui.py not found. Please ensure it's in the same directory.")
-    except subprocess.CalledProcessError:
-        print("Error: The GUI script failed to run.")
+    
+    # 4. Run the main application (gui.exe takes precedence)
+    target_path, is_exe = get_target_file()
+    
+    if target_path:
+        try:
+            if is_exe:
+                # Run the compiled executable directly
+                subprocess.run([target_path], check=True)
+            else:
+                # Run the Python script using the interpreter
+                subprocess.run([sys.executable, target_path], check=True)
+        except FileNotFoundError:
+            print("Error: The main application file was not found.")
+        except subprocess.CalledProcessError as e:
+            print(f"Error: The main application failed to run. Process returned {e.returncode}.")
+        except Exception as e:
+            print(f"An unexpected error occurred while trying to run the main application: {e}")
+    else:
+        print("Error: Cannot start the monitor. Neither gui.py nor gui.exe found.")
+
 
 start_button = tb.Button(
     controls_frame,
