@@ -91,8 +91,14 @@ def get_cpu_info():
         try:
             system = platform.system()
             if system == "Windows":
-                # Always display i7-13700K on Windows
-                model = "Intel(R) Core(TM) i7-13700K"
+                # Detect actual CPU model on Windows using WMI for a cleaner name
+                out = _run_cmd(["wmic", "cpu", "get", "Name", "/value"])
+                if out:
+                    # Parse output (e.g., "Name=Intel(R) Core(TM) i7-13700K CPU @ 3.40GHz")
+                    for line in out.splitlines():
+                        if line.startswith("Name="):
+                            model = line.split("=", 1)[1].strip()
+                            break
             elif system == "Darwin":
                 out = _run_cmd(["sysctl", "-n", "machdep.cpu.brand_string"])
                 model = out or platform.processor()
@@ -159,7 +165,8 @@ def get_cpu_temp():
     # Windows-specific WMI fallback
     if platform.system() == "Windows" and WMI_AVAILABLE:
         try:
-            w = wmi.WMI(namespace="root\wmi")
+            # FIX: Use a raw string (r"...") to avoid SyntaxWarning from '\w'
+            w = wmi.WMI(namespace=r"root\wmi")
             temperature_info = w.MSAcpi_ThermalZoneTemperature()
             if temperature_info:
                 # Temperature is in tenths of Kelvin

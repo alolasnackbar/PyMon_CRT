@@ -1,604 +1,675 @@
-import tkinter as tk
-import ttkbootstrap as tb
-from ttkbootstrap.constants import *
-import threading
-import queue
-from screeninfo import get_monitors
+import psutil
+import subprocess
+import platform
+import time
+import shutil
+import re
 import os
 import sys
-import subprocess
-import time
+from datetime import datetime
+import json # Added for use in GPU functions
 
-from constants import *
-from crt_graphics import CRTGrapher, ThreadedDataFetcher
-from metrics_layout import build_metrics
-from startup_loader import startup_loader
-import monitor_core as core
-from PIL import Image, ImageTk
-
-data_queue = queue.Queue()
-network_results = {"in_MB": 0, "out_MB": 0, "latency_ms": 0}
-last_resize_time = 0
-RESIZE_DEBOUNCE_MS = 100 # Prevents excessive redrawing during resize
-
-# Auto-cycling and smart focus globals
-auto_cycle_timer = None
-last_cycle_time = 0
-current_tab_index = 0
-smart_focus_active = False
-focus_override_time = 0
-FOCUS_OVERRIDE_DURATION = 10000  # 10 seconds in milliseconds
-config_tab_was_manually_selected = False
-MAIN_TABS_COUNT = 4  # Only cycle through first 4 tabs (excluding config)
-current_color_scheme = NORMAL_COLORS
-
-# --- Startup & Configuration ---
-def get_startup_monitor():
-    """Reads the selected monitor index from the config file."""
+# ---- Optional Windows WMI (for CPU model & temperature) ----
+WMI_AVAILABLE = False
+if platform.system() == "Windows":
     try:
-        with open("startup_config.txt", "r") as f:
-            return int(f.read().strip())
-    except (FileNotFoundError, ValueError):
-        return 0  # Default to current/primary monitor
+        import wmi  # type: ignore
+        WMI_AVAILABLE = True
+    except Exception:
+        WMI_AVAILABLE = False
 
-def open_startup_settings():
-    """Closes the current GUI and re-runs the startup settings script."""
-    root.destroy()
+# ---- Helpers ----
+def _which(cmd: str) -> bool:
+    """Check if a command is available in the system's PATH."""
+    return shutil.which(cmd) is not None
+
+def _run_cmd(args, timeout=0.3):
+    """Run a subprocess command and return its output."""
     try:
-        subprocess.run([sys.executable, "startup_set.py"], check=True)
-    except FileNotFoundError:
-        print("Error: startup_set.py not found.")
-    except subprocess.CalledProcessError:
-        print("Error: The setup script failed to run.")
+        out = subprocess.check_output(args, stderr=subprocess.DEVNULL, timeout=timeout, text=True)
+        return out.strip()
+    except Exception:
+        return None
 
-# ==============================================================================
-# ==== Color Blind Support Functions
-# ==============================================================================
-def update_color_scheme(colorblind_mode=False):
-    """Updates the color scheme based on colorblind mode setting."""
-    global current_color_scheme
-    if colorblind_mode:
-        current_color_scheme = COLORBLIND_COLORS
-    else:
-        current_color_scheme = NORMAL_COLORS
+# ---- CPU ----
+def get_cpu_usage(interval=None):
+    """
+    Return CPU usage percent.
+    - interval=None: instantaneous (requires prior warmup call by psutil).
+    - interval>0: blocks for that interval.
+    """
+    try:
+        return psutil.cpu_percent(interval=interval)
+    except Exception:
+        return 0.0
 
-def get_color(color_type):
-    """Gets color from current scheme."""
-    return current_color_scheme.get(color_type, CRT_GREEN)
+# Cache values + limiter
+_last_freq_check = 1.0
+_last_freq = None
+_freq_min = None
+_freq_max = None
 
-# ==============================================================================
-# ==== Smart Tab Management
-# ==============================================================================
-def get_tab_count():
-    """Returns the number of tabs in the notebook."""
-    if "notebook" in widgets:
-        return len(widgets["notebook"].tabs())
-    return 0
+def get_cpu_freq(rate_limit_sec: float = 1.0):
+    """
+    Returns a tuple (current_GHz, min_GHz, max_GHz).
+    - `current_GHz`: updated at most once per `rate_limit_sec` to reduce WMI overhead.
+    - `min_GHz`, `max_GHz`: cached once at startup (since they rarely change).
+    Returns None if unavailable.
+    """
+    global _last_freq_check, _last_freq, _freq_min, _freq_max
 
-def get_current_tab():
-    """Returns the currently selected tab index."""
-    if "notebook" in widgets:
-        return widgets["notebook"].index(widgets["notebook"].select())
-    return 0
+    try:
+        now = time.time()
 
-def set_current_tab(index):
-    """Sets the current tab by index."""
-    global config_tab_was_manually_selected
-    if "notebook" in widgets:
-        tab_count = get_tab_count()
-        if 0 <= index < tab_count:
-            widgets["notebook"].select(index)
-            # Track if config tab (index 4) was manually selected
-            if index == 4:  # Config tab
-                config_tab_was_manually_selected = True
+        # Initialize min/max once
+        if _freq_min is None or _freq_max is None:
+            f = psutil.cpu_freq(percpu=False)
+            if f:
+                _freq_min = round(f.min / 1000.0, 2) if f.min else None
+                _freq_max = round(f.max / 1000.0, 2) if f.max else None
+
+        # Rate-limit the "current" lookup
+        if now - _last_freq_check >= rate_limit_sec or _last_freq is None:
+            f = psutil.cpu_freq(percpu=False)
+            if f:
+                _last_freq = round(f.current / 1000.0, 2)  # GHz
             else:
-                config_tab_was_manually_selected = False
-            return True
-    return False
+                _last_freq = None
+            _last_freq_check = now
 
-def cycle_to_next_tab():
-    """Cycles to the next tab in sequence (only main 4 tabs)."""
-    global current_tab_index, config_tab_was_manually_selected
+        return (_last_freq, _freq_min, _freq_max)
+
+    except Exception:
+        return None
+
+# ---- CPU Info (cached) ----
+_cpu_model_cache = None
+
+def get_cpu_info():
+    global _cpu_model_cache
+    if _cpu_model_cache is None:
+        model = None
+        try:
+            system = platform.system()
+            if system == "Windows":
+                # Detect actual CPU model on Windows using WMI for a cleaner name
+                out = _run_cmd(["wmic", "cpu", "get", "Name", "/value"])
+                if out:
+                    # Parse output (e.g., "Name=Intel(R) Core(TM) i7-13700K CPU @ 3.40GHz")
+                    for line in out.splitlines():
+                        if line.startswith("Name="):
+                            model = line.split("=", 1)[1].strip()
+                            break
+            elif system == "Darwin":
+                out = _run_cmd(["sysctl", "-n", "machdep.cpu.brand_string"])
+                model = out or platform.processor()
+            else:  # Linux or other Unix
+                out = _run_cmd(["lscpu"])
+                if out:
+                    for line in out.splitlines():
+                        if "Model name" in line:
+                            model = line.split(":", 1)[1].strip()
+                            break
+                # Fallback to /proc/cpuinfo
+                if not model:
+                    try:
+                        with open("/proc/cpuinfo") as f:
+                            for line in f:
+                                if "model name" in line:
+                                    model = line.split(":", 1)[1].strip()
+                                    break
+                    except Exception:
+                        pass
+                # Final fallback
+                if not model:
+                    model = platform.processor() or platform.uname().processor
+        except Exception:
+            model = platform.processor() or "Unknown CPU"
+
+        _cpu_model_cache = model or "Unknown CPU"
+
+    return {
+        "model": _cpu_model_cache,
+        "physical_cores": psutil.cpu_count(logical=False) or 0,
+        "logical_cores": psutil.cpu_count(logical=True) or 0,
+    }
+
+def get_cpu_temp():
+    """
+    Returns CPU temperature in Celsius, or None if not available.
+    Supports `psutil.sensors_temperatures()` as the primary method for all platforms,
+    with a robust search for common sensor names.
+    """
+    try:
+        temps = psutil.sensors_temperatures()
+        if not temps:
+            return None
+
+        # Tier 1: Look for common, explicit CPU/Core temperature sensors
+        for name, sensors in temps.items():
+            if sensors and any(kw in name.lower() for kw in ['cpu', 'core', 'package']):
+                # Return the first found valid current temperature
+                for sensor in sensors:
+                    if sensor.current is not None:
+                        return sensor.current
+
+        # Tier 2: General fallback for any sensor that seems like a temperature reading
+        for name, sensors in temps.items():
+            if sensors and any(kw in name.lower() for kw in ['temp', 'thermal']):
+                for sensor in sensors:
+                    if sensor.current is not None:
+                        return sensor.current
+
+    except Exception:
+        pass
     
-    # Don't cycle if user is on config tab and hasn't switched away
-    current_tab = get_current_tab()
-    if current_tab == 4 and config_tab_was_manually_selected:  # Config tab
-        update_status("Staying on config tab")
-        return
-    
-    # Only cycle through main 4 tabs (0-3)
-    current_tab_index = (current_tab_index + 1) % MAIN_TABS_COUNT
-    set_current_tab(current_tab_index)
-    update_status(f"Cycled to tab {current_tab_index + 1}")
-
-def smart_focus_check(cpu_usage=0, cpu_temp=None, gpu_temp=None, latency=None):
-    """Checks if smart focus should activate based on system conditions (only main 4 tabs)."""
-    global smart_focus_active, focus_override_time, config_tab_was_manually_selected
-    
-    if "Config" not in widgets:
-        return
-    
-    config = widgets["Config"]
-    
-    # Check if smart focus is enabled
-    if not config.get("focus_enabled", tb.BooleanVar(value=True)).get():
-        return
-    
-    # Don't override if user is on config tab and hasn't switched away
-    current_tab = get_current_tab()
-    if current_tab == 4 and config_tab_was_manually_selected:  # Config tab
-        return
-    
-    # Don't override if we recently had a focus override
-    current_time = time.time() * 1000
-    if current_time - focus_override_time < FOCUS_OVERRIDE_DURATION:
-        return
-    
-    focus_triggered = False
-    target_tab = 0  # Default to System Info
-    reason = ""
-    
-    # Check CPU usage threshold
-    cpu_threshold = config.get("cpu_threshold", 80)
-    if cpu_usage > cpu_threshold:
-        target_tab = 1  # Processing Stats tab
-        reason = f"High CPU: {cpu_usage:.1f}%"
-        focus_triggered = True
-    
-    # Check temperature thresholds
-    temp_threshold = config.get("temp_threshold", 75)
-    max_temp = None
-    if cpu_temp is not None:
-        max_temp = cpu_temp
-    if gpu_temp is not None and (max_temp is None or gpu_temp > max_temp):
-        max_temp = gpu_temp
-        
-    if max_temp and max_temp > temp_threshold:
-        target_tab = 3  # Temperature Stats tab
-        reason = f"High temp: {max_temp:.1f}°C"
-        focus_triggered = True
-    
-    # Check network latency threshold
-    latency_threshold = config.get("latency_threshold", 200)
-    if latency and latency > latency_threshold:
-        target_tab = 2  # Network Stats tab
-        reason = f"High latency: {latency:.0f}ms"
-        focus_triggered = True
-    
-    # Only switch if target is within main 4 tabs and different from current
-    if focus_triggered and target_tab < MAIN_TABS_COUNT and get_current_tab() != target_tab:
-        set_current_tab(target_tab)
-        smart_focus_active = True
-        focus_override_time = current_time
-        update_status(f"Alert: {reason}")
-
-def auto_cycle_tabs():
-    """Handles automatic tab cycling (only main 4 tabs)."""
-    global auto_cycle_timer, last_cycle_time, smart_focus_active, config_tab_was_manually_selected
-    
-    if "Config" not in widgets:
-        root.after(5000, auto_cycle_tabs)  # Try again in 5 seconds
-        return
-    
-    config = widgets["Config"]
-    
-    # Check if auto-cycling is enabled
-    if not config.get("cycle_enabled", tb.BooleanVar(value=False)).get():
-        root.after(1000, auto_cycle_tabs)  # Check again in 1 second
-        return
-    
-    # Don't cycle if smart focus is active
-    if smart_focus_active:
-        smart_focus_active = False  # Reset after one cycle
-        cycle_delay = config.get("cycle_delay", 5) * 1000
-        root.after(cycle_delay, auto_cycle_tabs)
-        return
-    
-    # Don't cycle if user is on config tab and hasn't switched away
-    current_tab = get_current_tab()
-    if current_tab == 4 and config_tab_was_manually_selected:  # Config tab
-        cycle_delay = config.get("cycle_delay", 5) * 1000
-        root.after(cycle_delay, auto_cycle_tabs)
-        return
-    
-    # Cycle to next tab (only main 4 tabs)
-    cycle_to_next_tab()
-    
-    # Schedule next cycle
-    cycle_delay = config.get("cycle_delay", 5) * 1000
-    root.after(cycle_delay, auto_cycle_tabs)
-
-def update_status(message):
-    """Updates the status label in the config tab."""
-    if "Config" in widgets and "status_label" in widgets["Config"]:
-        # Compact status messages for the new layout
-        max_length = 20
-        if len(message) > max_length:
-            message = message[:max_length-3] + "..."
-        widgets["Config"]["status_label"].config(text=message)
-
-# ==============================================================================
-# ==== Main GUI Setup
-# ==============================================================================
-root = tb.Window(themename="darkly")
-root.title("AlohaSnackBar Hardware Monitor")
-root.minsize(580, 450) # Set minimum size to maintain readability
-
-# --- Initial Geometry ---
-fullscreen = False
-monitor_idx = get_startup_monitor()
-try:
-    monitors = get_monitors()
-    if 0 < monitor_idx <= len(monitors):
-        monitor = monitors[monitor_idx - 1]
-        if monitor.width <= 960 and monitor.height <= 600:
-            root.geometry(f"{monitor.width}x{monitor.height}+{monitor.x}+{monitor.y}")
-            root.overrideredirect(True)
-            fullscreen = True
-        else:
-            root.geometry(f"960x600+{monitor.x + 100}+{monitor.y + 100}")
-    else:
-        root.geometry("960x600")
-except Exception:
-    root.geometry("960x600")
-
-style = tb.Style()
-
-# ==============================================================================
-# ==== Menu Bar
-# ==============================================================================
-main_menu = tb.Menu(root)
-root.config(menu=main_menu)
-
-file_menu = tb.Menu(main_menu, tearoff=0)
-main_menu.add_cascade(label="Run", menu=file_menu)
-file_menu.add_command(label="Check Update", command=lambda: print("Update check clicked"))
-file_menu.add_separator()
-file_menu.add_command(label="Exit", command=root.quit)
-
-control_menu = tb.Menu(main_menu, tearoff=0)
-main_menu.add_cascade(label="Control", menu=control_menu)
-control_menu.add_command(label="Startup Settings", command=open_startup_settings)
-
-help_menu = tb.Menu(main_menu, tearoff=0)
-main_menu.add_cascade(label="Help", menu=help_menu)
-help_menu.add_command(label="WatDoing (Help)", command=lambda: print("Help clicked"))
-
-# ==============================================================================
-# ==== Build Widgets & Graphics
-# ==============================================================================
-widgets = build_metrics(root, style)
-
-disk_io_widgets = widgets["Disk I/O"]
-crt_grapher = CRTGrapher(
-    canvas=widgets["CPU"][2],
-    io_canvas=disk_io_widgets[4],
-    max_io=DISK_IO_MAX_MBPS,
-    style=style,
-    io_read_bar=disk_io_widgets[2],
-    io_write_bar=disk_io_widgets[3],
-    io_read_lbl=disk_io_widgets[0],
-    io_write_lbl=disk_io_widgets[1]
-)
-
-# Set up temperature CRT components
-if "Temp Stats" in widgets:
-    temp_widgets = widgets["Temp Stats"]
-    crt_grapher.set_temp_components(
-        temp_canvas=temp_widgets.get("Canvas"),
-        temp_cpu_lbl=temp_widgets.get("CPU_Label"),
-        temp_gpu_lbl=temp_widgets.get("GPU_Label")
-    )
-
-# Store latest history data to enable redrawing on resize
-latest_history = {}
-
-# ==============================================================================
-# ==== Helper Functions
-# ==============================================================================
-def get_temp_color(value):
-    if value is None: return "default"
-    if value < 50: return "success"
-    elif value < 90: return "warning"
-    else: return "danger"
-
-def get_usage_color(value):
-    if value is None: return get_color('success')
-    if value < 60: return get_color('success')
-    elif value < 80: return get_color('warning')
-    else: return get_color('danger')
-
-def get_net_color(value):
-    # Colors for network speed (higher is better)
-    if value is None or value < 1: return get_color('success')
-    if value < 5: return get_color('warning')
-    else: return get_color('danger')
-
-def get_latency_color(value):
-    # Colors for latency (lower is better)
-    if value is None: return get_color('success')
-    if value < 60: return get_color('success')
-    elif value < 150: return get_color('warning')
-    else: return get_color('danger')
-
-# ==============================================================================
-# ==== Configuration Change Handlers
-# ==============================================================================
-def on_colorblind_change():
-    """Handles colorblind mode toggle."""
-    if "Config" in widgets:
-        colorblind_mode = widgets["Config"]["colorblind_mode"].get()
-        update_color_scheme(colorblind_mode)
-        mode_text = "enabled" if colorblind_mode else "disabled"
-        update_status(f"Color blind {mode_text}")
-        # Force a redraw of all colored elements
-        if latest_history:
-            # This will trigger color updates on next GUI refresh
+    # Windows-specific WMI fallback
+    if platform.system() == "Windows" and WMI_AVAILABLE:
+        try:
+            # FIX: Use a raw string (r"...") to avoid SyntaxWarning from '\w'
+            w = wmi.WMI(namespace=r"root\wmi")
+            temperature_info = w.MSAcpi_ThermalZoneTemperature()
+            if temperature_info:
+                # Temperature is in tenths of Kelvin
+                return (temperature_info[0].CurrentTemperature / 10) - 273.15
+        except Exception:
             pass
 
-def setup_config_bindings():
-    """Sets up bindings for configuration changes."""
-    if "Config" in widgets:
-        config = widgets["Config"]
-        # Bind colorblind mode change
-        if "colorblind_mode" in config:
-            config["colorblind_mode"].trace('w', lambda *args: on_colorblind_change())
-        # Bind Apply Settings button
-        if "apply_button" in config:
-            config["apply_button"].configure(command=open_startup_settings)
+    return None
 
-# ==============================================================================
-# ==== Fullscreen & Resize Management
-# ==============================================================================
-prev_geometry = None
-
-def get_current_monitor_geometry():
+# ---- CPU htop Process Table ----
+def get_load_average():
+    """Return load average in Linux style, Windows shows CPU percent fallback."""
     try:
-        x, y = root.winfo_x(), root.winfo_y()
-        for m in get_monitors():
-            if m.x <= x < m.x + m.width and m.y <= y < m.y + m.height:
-                return m.width, m.height, m.x, m.y
-        primary = [m for m in get_monitors() if m.is_primary][0]
-        return primary.width, primary.height, primary.x, primary.y
+        load1, load5, load15 = os.getloadavg()
+        return f"{load1:.2f} {load5:.2f} {load15:.2f}"#load average view here
+    except (AttributeError, OSError):
+        # Windows fallback: show CPU usage %
+        # Pass a very short interval to ensure it's not blocking the main loop
+        cpu = psutil.cpu_percent(interval=0.01) 
+        return f"{cpu:.1f}"#load cpu usage here
+    
+def get_top_processes(limit=8): # Increased limit slightly for better view
+    """Return top processes sorted by CPU usage (safe across platforms)."""
+    processes = []
+    # psutil.process_iter() requires a warmup call to cpu_percent before the loop for accurate readings
+    for p in psutil.process_iter(['pid', 'username', 'nice', 'memory_info', 'cpu_percent', 'name']):
+        try:
+            info = p.info
+            virt = (info.get('memory_info').vms if info.get('memory_info') else 0) / (1024 * 1024)
+            res = (info.get('memory_info').rss if info.get('memory_info') else 0) / (1024 * 1024)
+            processes.append((
+                info.get('pid', 0),
+                (info.get('username') or "unknown")[:8],
+                info.get('nice', 0),  # fallback to 0 if missing nice is what?
+                virt,
+                res,
+                info.get('cpu_percent', 0.0),
+                p.memory_percent() if p else 0.0,
+                info.get('name', "unknown")
+            ))
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            continue
+
+    # Sort by CPU%
+    processes.sort(key=lambda x: x[5], reverse=True)
+
+    top = []
+    for proc in processes[:limit]:
+        pid, user, nice, virt, res, cpu, mem, name = proc
+        top.append(
+            f"{pid:<6} {user:<8} {virt:>6.1f}M {res:>6.1f}M {cpu:>5.1f} {mem:>5.1f}  {name}"
+        )
+    return top
+
+# ---- RAM ----
+def get_ram_usage():
+    try:
+        return psutil.virtual_memory().percent
     except Exception:
-        return 1920, 1080, 0, 0
+        return 0.0
 
-def toggle_fullscreen(event=None):
-    global fullscreen, prev_geometry
-    fullscreen = not fullscreen
-    if fullscreen:
-        prev_geometry = root.geometry()
-        w, h, x, y = get_current_monitor_geometry()
-        root.overrideredirect(True)
-        root.geometry(f"{w}x{h}+{x}+{y}")
-    else:
-        root.overrideredirect(False)
-        if prev_geometry:
-            root.geometry(prev_geometry)
-
-def handle_resize(event):
-    """Debounces resize events and redraws graphs."""
-    global last_resize_time
-    # This check ensures we're not resizing a widget, but the main window
-    if event.widget != root:
-        return
-        
-    current_time = time.time() * 1000
-    if (current_time - last_resize_time) > RESIZE_DEBOUNCE_MS:
-        last_resize_time = current_time
-        # Redraw graphs with the latest data if it exists
-        if latest_history and hasattr(crt_grapher, 'redraw_all'):
-            crt_grapher.redraw_all(latest_history)
-
-# --- Bindings ---
-root.bind("<F11>", toggle_fullscreen)
-root.bind("<Escape>", lambda e: toggle_fullscreen())
-root.bind("<Configure>", handle_resize)
-
-# ==============================================================================
-# ==== GUI Update Loops
-# ==============================================================================
-def _update_metric_display(key, history):
-    val = history.get(key, [None])[-1]
-    if val is None: return
-
-    lbl, bar, cvs, maxv, overlay_lbl = widgets[key]
-    lbl_color = get_usage_color(val)
-
-    if key == "CPU":
-        freq_tuple = core.get_cpu_freq()
-        freq_text = f"{freq_tuple[0]:>4.2f} GHz" if freq_tuple and freq_tuple[0] else " N/A "
-        lbl.config(foreground=lbl_color, text=f"CPU Usage: {val:>5.1f}%  CPU Speed: {freq_text}")
-    elif key == "RAM":
-        ram_info = core.get_ram_info()
-        used = ram_info.get('used', 0)
-        avail = ram_info.get('available', 0)
-        lbl.config(foreground=lbl_color, text=f"RAM used {used:>5.2f} GB / free {avail:>5.2f} GB")
-        if overlay_lbl:
-            new_relx = (val / 200)
-            display_text = f"{val:.1f}%" if val > 15 else ""
-            overlay_lbl.config(text=display_text, background=lbl_color, foreground="black")
-            overlay_lbl.place_configure(relx=new_relx)
-    else: # GPU
-        gpu_clocks = core.get_gpu_clock_speed()
-        lbl.config(foreground=lbl_color, text=f"{key} Usage: {val:>5.1f}%  Clock Speed: {gpu_clocks} Mhz")
-
-    style.configure(bar._style_name, background=lbl_color)
-    bar["value"] = val
-    crt_grapher.draw_metric(cvs, history[key], maxv, color=lbl_color)
-
-def update_gui():
-    global latest_history
+def get_ram_info():
     try:
-        while not data_queue.empty():
-            history = data_queue.get_nowait()
-            latest_history = history # Save for resizing
-            crt_grapher.frame_count += 3
+        mem = psutil.virtual_memory()
+        return {
+            "used": round(mem.used / (1024**3), 2),
+            "available": round(mem.available / (1024**3), 2),
+        }
+    except Exception:
+        return {"used": 0.0, "available": 0.0}
 
-            for key in ["CPU", "RAM", "GPU"]:
-                _update_metric_display(key, history)
+# ---- Disk I/O (rate based on actual elapsed) ----
+_last_disk_io = psutil.disk_io_counters()
+_last_disk_ts = time.time()
 
-            read_mb = history.get("DISK_read", [0])[-1]
-            write_mb = history.get("DISK_write", [0])[-1]
-            crt_grapher.update_dual_io_labels(read_mb, write_mb)
-            crt_grapher.draw_dual_io(history.get("DISK_read", []), history.get("DISK_write", []))
-            
-            # Update temperature CRT display with error handling
+def get_disk_io(interval=None):
+    """
+    Returns (read_MB_per_s, write_MB_per_s).
+    Uses actual elapsed time since the previous call for accuracy.
+    The 'interval' parameter is accepted for API compatibility but is not used to sleep.
+    """
+    global _last_disk_io, _last_disk_ts
+    try:
+        now = time.time()
+        io_now = psutil.disk_io_counters()
+        elapsed = max(1e-3, now - _last_disk_ts)  # avoid div by zero
+
+        read_bytes = io_now.read_bytes - _last_disk_io.read_bytes
+        write_bytes = io_now.write_bytes - _last_disk_io.write_bytes
+
+        _last_disk_io = io_now
+        _last_disk_ts = now
+
+        read_mb_s = read_bytes / (1024 * 1024) / elapsed
+        write_mb_s = write_bytes / (1024 * 1024) / elapsed
+        return read_mb_s, write_mb_s
+    except Exception:
+        return 0.0, 0.0
+# --- DISK space usage ---
+def get_disk_summary(max_drives=3):
+    """
+    Returns a formatted string of disk usage for up to `max_drives` drives.
+    
+    Example output: "C: 120/500 GB | D: 300/1.1 GB"
+    """
+    summary = []
+    try:
+        partitions = psutil.disk_partitions()
+        count = 0
+        for part in partitions:
+            if count >= max_drives:
+                break
             try:
-                cpu_temp_list = history.get("CPU_temp", [])
-                gpu_temp_list = history.get("GPU_temp", [])
+                usage = psutil.disk_usage(part.mountpoint)
+                used_gb = round(usage.used / (1024 ** 3), 1)
+                total_gb = round(usage.total / (1024 ** 3), 1)
+                # Remove any trailing '\' or ':' from the drive letter
+                drive_letter = part.device.strip(':\\')
                 
-                cpu_temp_current = cpu_temp_list[-1] if cpu_temp_list else None
-                gpu_temp_current = gpu_temp_list[-1] if gpu_temp_list else None
+                # Use just the mountpoint if it's a Unix-style path or a complex Windows path
+                display_name = drive_letter if drive_letter else part.mountpoint
                 
-                if cpu_temp_current is not None or gpu_temp_current is not None:
-                    crt_grapher.update_dual_temp_labels(cpu_temp_current, gpu_temp_current)
-                    crt_grapher.draw_dual_temp(cpu_temp_list, gpu_temp_list)
-            except (IndexError, AttributeError) as e:
-                # Handle cases where temperature data might not be available
-                pass
-            
-            # Trigger smart focus check with current values
-            cpu_usage = history.get("CPU", [0])[-1]
-            cpu_temp = core.get_cpu_temp()
-            gpu_temp = core.get_gpu_temp()
-            latency = network_results.get('latency_ms')
-            smart_focus_check(cpu_usage, cpu_temp, gpu_temp, latency)
-            
-    except queue.Empty:
-        pass
-    finally:
-        root.after(REFRESH_GUI_MS, update_gui)
+                summary.append(f"{display_name}: {used_gb}/{total_gb} GB")
+                count += 1
+            except PermissionError:
+                continue
+    except Exception as e:
+        # print("Error retrieving disk summary:", e) # Keep quiet in dashboard context
+        return ""
+    
+    return " | ".join(summary)
 
-def update_heavy_stats():
-    def worker():
+# ---- GPU ----
+def _nvidia_smi_available():
+    return _which("nvidia-smi")
+    
+def _rocm_smi_available():
+    return _which("rocm-smi")
+
+def get_gpu_usage():
+    """
+    Returns GPU utilization percent (float) or None if not available.
+    Supports NVIDIA (via nvidia-smi) and AMD (via rocm-smi on Linux).
+    """
+    try:
+        if _nvidia_smi_available():
+            out = _run_cmd(["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"], timeout=0.25)
+            if out:
+                return float(out.splitlines()[0].strip())
+        elif platform.system() == "Linux" and _rocm_smi_available():
+            out = _run_cmd(["rocm-smi", "--showuse", "--json"], timeout=0.25)
+            if out:
+                # import json # Already imported at top
+                data = json.loads(out)
+                # Parse the usage data from the JSON output
+                gpus = data.get("GPUs", [])
+                if gpus and gpus[0].get("GPU use (%)"):
+                    # The value might be a string like "50.0%"
+                    return float(gpus[0]["GPU use (%)"].strip('% '))
+
+    except Exception:
+        return None
+    return None
+
+def get_gpu_clock_speed():
+    """
+    Returns the live GPU clock speed from nvidia-smi as a string.
+    Returns "N/A" if nvidia-smi is not available or an error occurs.
+    """
+    # A simplified, reliable check for nvidia-smi
+    nvidia_smi_path = "nvidia-smi"
+    if not _nvidia_smi_available():
+        return "N/A" # Skip complicated path checks, rely on _which
+
+    # Use subprocess.check_output to capture the command's output
+    try:
+        output = subprocess.check_output([nvidia_smi_path, "--query-gpu=clocks.sm", "--format=csv,noheader,nounits"], universal_newlines=True, stderr=subprocess.DEVNULL)
+        # The output is a string like "1845" (for a clock speed of 1845 MHz)
+        clock_speed_mhz = float(output.strip()) 
+        
+        # Format the output into a more readable string
+        return f"{clock_speed_mhz:>.0f}"
+
+    except (subprocess.CalledProcessError, FileNotFoundError, IndexError, ValueError) as e:
+        # Handle all potential errors
+        return "N/A"
+
+
+def get_gpu_temp():
+    """
+    Returns GPU temperature in Celsius, or None if not available.
+    Supports NVIDIA (via nvidia-smi) and AMD (via rocm-smi on Linux).
+    """
+    try:
+        if _nvidia_smi_available():
+            out = _run_cmd(["nvidia-smi", "--query-gpu=temperature.gpu", "--format=csv,noheader,nounits"], timeout=0.25)
+            if out:
+                return float(out.splitlines()[0].strip())
+        elif platform.system() == "Linux" and _rocm_smi_available():
+            out = _run_cmd(["rocm-smi", "--showtemp", "--json"], timeout=0.25)
+            if out:
+                # import json # Already imported at top
+                data = json.loads(out)
+                gpus = data.get("GPUs", [])
+                if gpus and gpus[0].get("Temperature (Sensor)"):
+                    temp_data = gpus[0]["Temperature (Sensor)"]
+                    if isinstance(temp_data, dict) and "temp (C)" in temp_data:
+                        # Some versions return temp as a dict
+                        return float(temp_data["temp (C)"])
+                    # Some versions return a direct string
+                    return float(temp_data.strip(' C'))
+
+    except Exception:
+        return None
+    return None
+
+def get_gpu_info():
+    if _nvidia_smi_available():
+        out = _run_cmd(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"], timeout=0.25)
+        return out if out else "NVIDIA GPU"
+    elif platform.system() == "Linux" and _rocm_smi_available():
+        out = _run_cmd(["rocm-smi", "--showproductname"], timeout=0.25)
+        return out.splitlines()[-1] if out else "AMD GPU"
+    elif platform.system() == "Windows" and WMI_AVAILABLE:
         try:
-            # Get process count from config
-            process_limit = 5  # Default
-            if "Config" in widgets:
-                process_limit = widgets["Config"].get("process_count", 5)
+            w = wmi.WMI()
+            gpus = w.Win32_VideoController()
+            if gpus:
+                # Prioritize NVIDIA and AMD names
+                for gpu in gpus:
+                    if "NVIDIA" in gpu.name:
+                        return gpu.name
+                    if "AMD" in gpu.name:
+                        return gpu.name
+                # Fallback to the first found GPU
+                return gpus[0].name
+        except Exception:
+            pass
+    return None
+
+
+# ---- Time & Uptime ----
+def get_local_date():
+    """Return the current local date as a formatted string."""
+    return datetime.now().strftime("%a, %b %d, %Y")
+
+def get_local_time():
+    """Return the current local time as a formatted string."""
+    return datetime.now().strftime("%H:%M:%S %p")
+
+def get_uptime():
+    try:
+        boot_time = datetime.fromtimestamp(psutil.boot_time())
+        uptime = datetime.now() - boot_time
+        hours, remainder = divmod(int(uptime.total_seconds()), 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return f"{hours}h {minutes}m {seconds}s"
+    except Exception:
+        return "N/A"
+
+# --- Network selection ---
+def get_primary_interface():
+    """
+    Auto-select the main active interface, ignoring loopback and common virtuals.
+    Returns "WiFi", "Ethernet", or None.
+    """
+    try:
+        stats = psutil.net_io_counters(pernic=True)
+        # Prioritize interfaces based on naming conventions
+        for iface, data in stats.items():
+            low = iface.lower()
+            if low in ("lo", "loopback") or "docker" in low or "veth" in low or "virtual" in low:
+                continue
+            if data.bytes_sent > 0 or data.bytes_recv > 0:
+                if "eth" in low or "lan" in low or "ethernet" in low:
+                    return iface # Return the actual interface name
+                elif "wlan" in low or "wifi" in low:
+                    return iface # Return the actual interface name
+        
+        # Fallback to the first active candidate if no naming convention match
+        candidates = []
+        for iface, data in stats.items():
+            low = iface.lower()
+            if low in ("lo", "loopback") or "docker" in low or "veth" in low or "virtual" in low:
+                continue
+            if data.bytes_sent > 0 or data.bytes_recv > 0:
+                candidates.append(iface)
+        
+        if candidates:
+            return candidates[0] # Return the actual interface name
             
-            # Fetch all data in the background
-            cpu_info = core.get_cpu_info()
-            gpu_info = core.get_gpu_info() or "N/A"
-            disk_use = core.get_disk_summary()
-            cpu_temp = core.get_cpu_temp()
-            gpu_temp = core.get_gpu_temp()
-            gpu_clocks = core.get_gpu_clock_speed()
-            procs = core.get_top_processes(limit=process_limit)
-            load_avg = core.get_load_average()
-            uptime = core.get_uptime()
-            top_text = "PID      USER          VIRT      RES   CPU%   MEM%   NAME\n" + "\n".join(procs)
+        return None
+    except Exception:
+        return None
 
-            def apply_updates():
-                # --- Sys Info Tab ---
-                info_labels = widgets["Sys Info"]
-                info_labels["CPU Model"].config(text=f"CPU Model: {cpu_info.get('model', 'N/A')}")
-                cores = cpu_info.get('physical_cores', 'N/A')
-                threads = cpu_info.get('logical_cores', 'N/A')
-                info_labels["Cores"].config(text=f"{cores} CORES | {threads} THREADS")
-                info_labels["GPU"].config(text=f"GPU: {gpu_info} | {gpu_clocks} Mhz")
-                info_labels["DISK"].config(text=f"DISK USAGE: {disk_use}")
-                info_labels["Uptime"].config(text=f"Uptime: {uptime}")
+# --- Ping (with timeouts and robust parsing) ---
+def ping_host(host_address, ping_count=3):
+    """
+    Pings a host and returns the average latency in milliseconds.
+    """
+    try:
+        # Use a cross-platform command
+        command = ['ping', host_address, '-n' if os.name == 'nt' else '-c', str(ping_count)]
+        
+        # Run the command and capture the output
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False # Do not raise for non-zero exit code (e.g., partial packet loss)
+        )
 
-                # --- Network & Latency ---
-                net_in = network_results['in_MB']
-                net_out = network_results['out_MB']
-                lat = network_results['latency_ms']
-                info_labels["Net IN"].config(text=f"Net Download:{net_in:>6.2f} MB/s", foreground=get_net_color(net_in))
-                info_labels["Net OUT"].config(text=f"Net Upload:  {net_out:>6.2f} MB/s", foreground=get_net_color(net_out))
-                lat_text = f"Latency: {lat:>5.1f} ms" if lat is not None else "Latency:     N/A"
-                info_labels["Latency"].config(text=lat_text, foreground=get_latency_color(lat))
-                
-                # --- Processing Stats Tab ---
-                cpu_labels = widgets["CPU Stats"]
-                cpu_labels["Info"].config(text=f"CPU Load Avg: {load_avg}   Uptime: {uptime}")
-                cpu_labels["Top Processes"].config(text=top_text)
-                
-                # --- Temperature Stats Tab ---
-                if "Temp Stats" in widgets:
-                    temp_widgets = widgets["Temp Stats"]
+        # Parse the output to find the average latency
+        output = result.stdout
+        if os.name == 'nt':  # Windows
+            # Look for "Average = 12ms"
+            match = re.search(r'Average = (\d+)ms', output)
+        else:  # Linux/macOS
+            # Look for "min/avg/max/mdev = 10.123/12.345/14.567/1.234"
+            match = re.search(r'min/avg/max/.+ = [\d.]+/([\d.]+)', output)
 
-                    # Update combined CPU/GPU line with colors
-                    if "Temp_Label" in temp_widgets:
-                        cpu_text = f"{cpu_temp:.0f}°C" if cpu_temp is not None else "... °C"
-                        gpu_text = f"{gpu_temp:.0f}°C" if gpu_temp is not None else "... °C"
+        if match:
+            # Return the average latency as a float
+            return float(match.group(1))
+        
+        return None  # No match found or 100% loss
+        
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
+        # print(f"Ping failed: {e}") # Suppress non-critical errors for dashboard
+        return None
 
-                        # Clear and reinsert with tags
-                        temp_widgets["Temp_Label"].configure(state="normal")
-                        temp_widgets["Temp_Label"].delete("1.0", "end")
+def net_usage_latency(interface, ping_host_addr="8.8.8.8", ping_count=1, interval=0.1):
+    """
+    Return (net_in_MB_per_s, net_out_MB_per_s, avg_latency_ms).
+    Samples I/O deltas and measures latency.
+    """
+    # Initialize values to default
+    net_in_MB, net_out_MB, avg_latency = 0.0, 0.0, None
+    
+    try:
+        if interface is None:
+            interface = get_primary_interface()
+        if interface is None:
+            return 0.0, 0.0, None
 
-                        temp_widgets["Temp_Label"].insert("end", f"CPU: {cpu_text}", "cpu")
-                        temp_widgets["Temp_Label"].insert("end", " | ")
-                        temp_widgets["Temp_Label"].insert("end", f"GPU: {gpu_text}", "gpu")
+        # 1. Get Network Usage
+        pernic1 = psutil.net_io_counters(pernic=True)
+        if interface not in pernic1:
+            return 0.0, 0.0, None
 
-                        temp_widgets["Temp_Label"].tag_config("cpu", foreground=CRT_GREEN)
-                        temp_widgets["Temp_Label"].tag_config("gpu", foreground="white")
+        bytes_recv1 = pernic1[interface].bytes_recv
+        bytes_sent1 = pernic1[interface].bytes_sent
 
-                        temp_widgets["Temp_Label"].configure(state="disabled")
+        time.sleep(interval)
 
-            root.after(0, apply_updates)
-        except Exception as e:
-            print(f"Heavy stats worker error: {e}")
-        finally:
-            root.after(REFRESH_HEAVY_MS, update_heavy_stats)
-    threading.Thread(target=worker, daemon=True).start()
+        pernic2 = psutil.net_io_counters(pernic=True)
+        if interface not in pernic2:
+            return 0.0, 0.0, None
 
-def update_network_stats():
-    def worker():
-        global network_results
+        bytes_recv2 = pernic2[interface].bytes_recv
+        bytes_sent2 = pernic2[interface].bytes_sent
+
+        net_in_MB = round((bytes_recv2 - bytes_recv1) / 1024 / 1024 / interval, 2)
+        net_out_MB = round((bytes_sent2 - bytes_sent1) / 1024 / 1024 / interval, 2)
+
+        # 2. Get Latency (using a single ping for speed)
+        avg_latency = ping_host(ping_host_addr, ping_count)
+        
+        return net_in_MB, net_out_MB, avg_latency
+        
+    except Exception as e:
+        # print(f"An unexpected error occurred in net_usage_latency: {e}")
+        return 0.0, 0.0, None
+
+# ---- Main Dashboard Logic ----
+def display_monitor(refresh_rate_sec=1.0):
+    """
+    Gathers all system metrics and prints a formatted dashboard to the console.
+    """
+    # Clear screen for live update
+    os.system('cls' if os.name == 'nt' else 'clear')
+    
+    # --- System Metrics Collection ---
+    
+    # Static info
+    cpu_info = get_cpu_info()
+    gpu_model = get_gpu_info()
+    
+    # Dynamic/Rate-limited info
+    cpu_usage = get_cpu_usage(interval=None) # Instantaneous since we slept for network
+    cpu_freq = get_cpu_freq(rate_limit_sec=1.0)
+    cpu_temp = get_cpu_temp()
+    ram_usage = get_ram_usage()
+    ram_info = get_ram_info()
+    
+    # Disk I/O (needs delta calculation)
+    disk_read, disk_write = get_disk_io()
+    disk_summary = get_disk_summary(max_drives=2)
+    
+    # Network I/O and Latency (includes its own sleep, so we'll adjust the main loop sleep)
+    primary_iface = get_primary_interface()
+    # We use a shorter interval here because this is inside the main loop
+    # The actual refresh rate is controlled by the main loop sleep, this interval is just for the I/O delta
+    net_in, net_out, latency = net_usage_latency(
+        interface=primary_iface, 
+        ping_count=1, 
+        interval=0.1 # This sleep time is included in the total refresh rate
+    ) 
+
+    # --- Formatting ---
+
+    # CPU Strings
+    cpu_model_str = f"{cpu_info['model']} ({cpu_info['physical_cores']}/{cpu_info['logical_cores']} Cores)"
+    cpu_freq_str = f"Curr: {cpu_freq[0]:.2f} GHz | Min: {cpu_freq[1]:.2f} GHz | Max: {cpu_freq[2]:.2f} GHz" if cpu_freq and all(cpu_freq) else "Frequency Data N/A"
+    cpu_temp_str = f"{cpu_temp:.1f}°C" if cpu_temp is not None else "N/A"
+
+    # GPU Strings
+    gpu_output = []
+    if gpu_model:
+        gpu_usage = get_gpu_usage()
+        gpu_temp = get_gpu_temp()
+        gpu_clock = get_gpu_clock_speed()
+        
+        gpu_usage_str = f"{gpu_usage:.1f}%" if gpu_usage is not None else "N/A"
+        gpu_temp_str = f"{gpu_temp:.1f}°C" if gpu_temp is not None else "N/A"
+        
+        gpu_output.append("-" * 70)
+        gpu_output.append(f"GPU: {gpu_model}")
+        gpu_output.append(f"Usage: {gpu_usage_str} | Temp: {gpu_temp_str} | Clock: {gpu_clock} MHz")
+    
+    # Network Strings
+    interface_name = primary_iface if primary_iface else "N/A"
+    latency_str = f"{latency:.2f} ms" if latency is not None else "N/A"
+
+    # --- Display Output ---
+    
+    print("-" * 70)
+    print(" " * 20 + " SYSTEM MONITOR DASHBOARD " + " " * 20)
+    print("-" * 70)
+    print(f"Date: {get_local_date():<20} Time: {get_local_time():<15} Uptime: {get_uptime()}")
+    print("-" * 70)
+
+    # CPU
+    print(f"CPU: {cpu_model_str}")
+    print(f"Usage: {cpu_usage:.1f}% | Temp: {cpu_temp_str}")
+    print(f"Freq: {cpu_freq_str}")
+    print("-" * 70)
+
+    # RAM
+    print(f"RAM: {ram_usage:.1f}% Used | {ram_info['used']:.2f} GB Used | {ram_info['available']:.2f} GB Available")
+    print("-" * 70)
+
+    # GPU
+    for line in gpu_output:
+        print(line)
+        
+    # Disk
+    print(f"Disk I/O: Read: {disk_read:.2f} MB/s | Write: {disk_write:.2f} MB/s")
+    print(f"Disk Space: {disk_summary}")
+    print("-" * 70)
+
+    # Network
+    print(f"Network ({interface_name}): In: {net_in:.2f} MB/s | Out: {net_out:.2f} MB/s | Latency (8.8.8.8): {latency_str}")
+    print("-" * 70)
+
+    # Top Processes
+    load_avg = get_load_average()
+    print(f"Load Average/CPU %: {load_avg}")
+    print(f"{'PID':<6} {'USER':<8} {'VIRT(M)':>6} {'RES(M)':>6} {'CPU%':>5} {'MEM%':>5} NAME")
+    for process_line in get_top_processes(limit=8):
+        print(process_line)
+    print("-" * 70)
+    
+    # Calculate how much more time to sleep to hit the target refresh rate
+    # net_usage_latency already slept for 0.1s
+    time_to_sleep = max(0.0, refresh_rate_sec - 0.1)
+    time.sleep(time_to_sleep)
+
+
+def main():
+    """Main execution loop for the system monitor."""
+    # Warmup call for psutil.cpu_percent (needed for instantaneous reading in the loop)
+    psutil.cpu_percent(interval=None) 
+    
+    # Initial pause to allow delta calculations to stabilize
+    print("Initializing system monitor... please wait.")
+    time.sleep(0.5) 
+    
+    # Run the main display loop
+    while True:
         try:
-            net_in, net_out, avg_latency = core.net_usage_latency(
-                interface=NETWORK_INTERFACE,
-                ping_host_addr=PING_HOST,
-                ping_count=PING_COUNT
-            )
-            network_results = {"in_MB": net_in, "out_MB": net_out, "latency_ms": avg_latency}
+            display_monitor(refresh_rate_sec=1.0)
+        except KeyboardInterrupt:
+            # os.system('cls' if os.name == 'nt' else 'clear') # Optional: clear before exit
+            print("\nMonitoring stopped by user (Ctrl+C).")
+            break
         except Exception as e:
-            print(f"Network stats error: {e}")
-            network_results = {"in_MB": 0.0, "out_MB": 0.0, "latency_ms": None}
-        finally:
-            root.after(REFRESH_SLOW_MS, update_network_stats)
-    threading.Thread(target=worker, daemon=True).start()
+            # Catches unexpected runtime errors and prevents crash (e.g., temporary command failure)
+            print(f"\n[Error] An unexpected error occurred: {e}. Retrying in 1 second...")
+            time.sleep(1)
 
-def update_time():
-    date_lbl, time_lbl = widgets["Time & Uptime"]
-    time_lbl.config(text=core.get_local_time())
-    date_lbl.config(text=f"Date: {core.get_local_date()}")
-    root.after(1000, update_time)
-
-# ==============================================================================
-# ==== Application Start
-# ==============================================================================
-def start_app():
-    data_fetcher = ThreadedDataFetcher(data_queue, interval=REFRESH_MS / 1000)
-    data_fetcher.start()
-    update_network_stats()
-    update_heavy_stats()
-    update_time()
-    update_gui()
-    
-    # Set up configuration bindings after widgets are created
-    setup_config_bindings()
-    
-    # Start auto-cycling after a short delay
-    root.after(2000, auto_cycle_tabs)
-    
-    # Initial status
-    update_status("Monitoring active")
 
 if __name__ == "__main__":
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    os.chdir(script_dir)
-    if not os.path.exists("startup_config.txt"):
-        print("First launch: running startup setup...")
-        try:
-            subprocess.run([sys.executable, "startup_set.py"], check=True)
-            if not os.path.exists("startup_config.txt"):
-                sys.exit("Setup was not completed. Exiting.")
-        except Exception as e:
-            print(f"Could not run startup_set.py: {e}")
-            sys.exit(1)
-
-    startup_loader(root, widgets, style, on_complete=start_app)
-    root.mainloop()
+    main()

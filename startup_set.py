@@ -2,24 +2,12 @@ import ttkbootstrap as tb
 import tkinter as tk
 from screeninfo import get_monitors
 from ttkbootstrap.constants import *
-# from constants import * # Assuming constants.py is available
+from constants import * # Assuming constants.py is available
 import os
 import sys
 import subprocess
 import shutil
 import json
-
-# --- Placeholder Constants (Since the actual file is not provided) ---
-# NOTE: You must have a constants.py file with these defined for the code to run!
-try:
-    # Attempt to load the actual constants
-    from constants import FONT_INFOTXT, FONT_TITLE, CRT_GREEN
-except ImportError:
-    # Define placeholders if constants.py is missing (for testing/safety)
-    FONT_INFOTXT = ("TkDefaultFont", 10)
-    FONT_TITLE = ("TkDefaultFont", 20, "bold")
-    CRT_GREEN = "#00FF00"
-# -------------------------------------------------------------------
 
 CONFIG_FILE = "startup_config.txt"
 
@@ -514,7 +502,7 @@ button_frame.pack(fill="x", pady=(10, 5))
 
 startup_button = tb.Button(
     button_frame,
-    text="Set to Run on Boot",
+    text="Set Startup Boot",
     bootstyle="info-outline",
     command=setup_startup_boot
 )
@@ -522,7 +510,7 @@ startup_button.pack(side=tk.LEFT, padx=5, fill="x", expand=True)
 
 cleanup_button = tb.Button(
     button_frame,
-    text="Clear Startup & Cache",
+    text="Clear Config",
     bootstyle="warning-outline",
     command=clear_startup_and_cache
 )
