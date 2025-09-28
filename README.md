@@ -3,16 +3,19 @@
 -ttkbootstrap
 -wmi (cache)
 
-# version 0.0.6 as of last updated
-- New: user_config saves config stats to .txt file
-- New: config tab added for notebook customization 
-- Adjusted: fine tuned and optimized gui widgets
-- Deprecating: File menu will be moved into config tab for styling issues
+# version 0.0.7 as of last updated
+- New: user_config saves startup_config stats to .txt file
+- New: config tab live updates (but if selection is clicked only)
+- New: better handling with error detection on loadup
+- Adjusted: text of detection in loadup instead of loading...
+- Adjusted: better startup_settings layout...
+- Deprecating: File menu will be moved into config tab for styling issues (soon)
 _________________________________________________________________________
 ________  unavailable until further notice ______________________________
 - temp cpu/gpu added, need more research on meters
 - net stats limited
-- Bug: Improved fullscreen behavior on multi-monitor setups, 
+- Bug: missing? for partial detection in loadup
+- Bug: check why ram bar doesn't align for lower end resolution layouts. 
 
 ## ==== Feature to do list ======
 1. bar still looks dodo find a way to make it seamelss (RAM)

@@ -19,6 +19,7 @@ from PIL import Image, ImageTk
 
 # --- Configuration Dictionary to hold all settings ---
 CONFIG = {}
+CONFIG_FILE = "startup_config.txt"
 
 # --- Globals ---
 data_queue = queue.Queue()
@@ -53,12 +54,12 @@ def load_config():
     }
     
     global CONFIG, current_color_scheme
-    CONFIG = default_config
+    CONFIG = default_config.copy()
     # Assuming NORMAL_COLORS is imported from constants
     current_color_scheme = NORMAL_COLORS 
     
     try:
-        with open("startup_config.txt", "r") as f:
+        with open(CONFIG_FILE, "r") as f:
             content = f.read().strip()
             try:
                 # New format: JSON
@@ -75,6 +76,15 @@ def load_config():
         pass # Use defaults
         
     update_color_scheme(CONFIG["colorblind_mode"])
+
+def save_config():
+    """Saves the current CONFIG dictionary to the JSON file."""
+    try:
+        with open(CONFIG_FILE, "w") as f:
+            json.dump(CONFIG, f, indent=2)
+        print(f"Configuration saved to {CONFIG_FILE}")
+    except Exception as e:
+        print(f"Error saving config: {e}")
 
 def get_startup_monitor():
     """Reads the selected monitor index from the global CONFIG."""
@@ -272,6 +282,108 @@ def update_status(message):
         widgets["Config"]["status_label"].config(text=message)
 
 # ==============================================================================
+# ==== Live Configuration Change Handlers
+# ==============================================================================
+def on_config_change(config_key):
+    """Generic handler for live configuration changes that immediately saves to file."""
+    def handler(*args):
+        if "Config" in widgets and config_key in widgets["Config"]:
+            widget_var = widgets["Config"][config_key]
+            if hasattr(widget_var, 'get'):
+                new_value = widget_var.get()
+                CONFIG[config_key] = new_value
+                save_config()  # Save immediately to file
+                
+                # Special handling for colorblind mode
+                if config_key == "colorblind_mode":
+                    update_color_scheme(new_value)
+                    mode_text = "enabled" if new_value else "disabled"
+                    update_status(f"Color blind {mode_text}")
+                else:
+                    update_status(f"{config_key} updated")
+    return handler
+
+def on_threshold_change(config_key):
+    """Handler for threshold values (CPU, temp, latency) with validation."""
+    def handler(*args):
+        if "Config" in widgets and config_key in widgets["Config"]:
+            widget_var = widgets["Config"][config_key]
+            if hasattr(widget_var, 'get'):
+                try:
+                    new_value = int(widget_var.get())
+                    # Basic validation for thresholds
+                    if config_key == "cpu_threshold" and (new_value < 1 or new_value > 100):
+                        new_value = max(1, min(100, new_value))
+                        widget_var.set(new_value)
+                    elif config_key == "temp_threshold" and (new_value < 20 or new_value > 120):
+                        new_value = max(20, min(120, new_value))
+                        widget_var.set(new_value)
+                    elif config_key == "latency_threshold" and (new_value < 1 or new_value > 5000):
+                        new_value = max(1, min(5000, new_value))
+                        widget_var.set(new_value)
+                    
+                    CONFIG[config_key] = new_value
+                    save_config()  # Save immediately to file
+                    update_status(f"{config_key} set to {new_value}")
+                except (ValueError, tk.TclError):
+                    # Invalid input - revert to current config value
+                    widget_var.set(CONFIG.get(config_key, 80))
+    return handler
+
+def setup_config_bindings():
+    """Sets up bindings and loads initial values for configuration controls with live saving."""
+    if "Config" in widgets:
+        config_frame = widgets["Config"]
+        
+        # 1. Load initial values from global CONFIG dictionary
+        
+        # Boolean variables with live change tracking
+        bool_configs = [
+            ("colorblind_mode", False),
+            ("cycle_enabled", False), 
+            ("focus_enabled", True)
+        ]
+        
+        for key, default in bool_configs:
+            if key in config_frame and hasattr(config_frame[key], 'set'):
+                config_frame[key].set(CONFIG.get(key, default))
+                # Bind live change handler
+                config_frame[key].trace('w', on_config_change(key))
+        
+        # Integer variables with live change tracking
+        int_configs = [
+            ("cycle_delay", 5),
+            ("process_count", 5)
+        ]
+        
+        for key, default in int_configs:
+            if key in config_frame and hasattr(config_frame[key], 'set'):
+                config_frame[key].set(CONFIG.get(key, default))
+                # Bind live change handler
+                config_frame[key].trace('w', on_config_change(key))
+        
+        # Threshold variables with validation and live change tracking
+        threshold_configs = [
+            ("cpu_threshold", 80),
+            ("temp_threshold", 75),
+            ("latency_threshold", 200)
+        ]
+        
+        for key, default in threshold_configs:
+            if key in config_frame and hasattr(config_frame[key], 'set'):
+                config_frame[key].set(CONFIG.get(key, default))
+                # Bind threshold change handler with validation
+                config_frame[key].trace('w', on_threshold_change(key))
+        
+        # 2. Bind the Apply Settings button to open startup_set.py
+        if "apply_button" in config_frame:
+            config_frame["apply_button"].configure(command=open_startup_settings)
+            
+        # 3. Initialize color scheme based on loaded config
+        if "colorblind_mode" in config_frame and hasattr(config_frame["colorblind_mode"], 'get'):
+            update_color_scheme(CONFIG.get("colorblind_mode", False))
+
+# ==============================================================================
 # ==== Main GUI Setup
 # ==============================================================================
 # Load configuration before setting up the window to get monitor index
@@ -395,68 +507,6 @@ def get_latency_color(value):
     else: return get_color('danger')
 
 # ==============================================================================
-# ==== Configuration Change Handlers
-# ==============================================================================
-# ==============================================================================
-# ==== Configuration Change Handlers
-# ==============================================================================
-def on_colorblind_change():
-    """Handles colorblind mode toggle and updates global config."""
-    if "Config" in widgets and "colorblind_mode" in widgets["Config"]:
-        # Read directly from the variable object
-        colorblind_mode = widgets["Config"]["colorblind_mode"].get()
-        CONFIG["colorblind_mode"] = colorblind_mode # Update global config
-        update_color_scheme(colorblind_mode)
-        mode_text = "enabled" if colorblind_mode else "disabled"
-        update_status(f"Color blind {mode_text}")
-        # Force a redraw of all colored elements (will happen in next update_gui cycle)
-
-def setup_config_bindings():
-    """Sets up bindings and loads initial values for configuration controls.
-    
-    FIX: Accesses the variable objects (tk.BooleanVar, tk.IntVar) directly
-    using the simple key names and ensures they support .set() before calling.
-    """
-    if "Config" in widgets:
-        config_frame = widgets["Config"]
-        
-        # 1. Load initial values from global CONFIG dictionary
-        
-        # Boolean variables (colorblind_mode, cycle_enabled, focus_enabled)
-        for key in ["colorblind_mode", "cycle_enabled", "focus_enabled"]:
-            if key in config_frame:
-                # IMPORTANT: Check if the retrieved item is a variable object (has .set method)
-                # and then retrieve the value from CONFIG.
-                if hasattr(config_frame[key], 'set'):
-                    default = False if key in ["colorblind_mode", "cycle_enabled"] else True
-                    config_frame[key].set(CONFIG.get(key, default))
-        
-        # Integer variables (cycle_delay, process_count)
-        for key, default in [("cycle_delay", 5), ("process_count", 5)]:
-            if key in config_frame:
-                # IMPORTANT: Check if the retrieved item is a variable object (has .set method)
-                # and then retrieve the value from CONFIG.
-                if hasattr(config_frame[key], 'set'):
-                    config_frame[key].set(CONFIG.get(key, default))
-                else:
-                    # Fallback for debugging: Print what type it is if it fails
-                    print(f"Warning: Config key '{key}' contains object of type '{type(config_frame[key]).__name__}', expected tk.IntVar.")
-
-        # 2. Bind trace for immediate color changes
-        # Ensure the variable object exists before attempting to trace it.
-        if "colorblind_mode" in config_frame and hasattr(config_frame["colorblind_mode"], 'trace'):
-            config_frame["colorblind_mode"].trace('w', lambda *args: on_colorblind_change())
-            
-        # 3. Bind the Apply Settings button to open startup_set.py
-        if "apply_button" in config_frame:
-            config_frame["apply_button"].configure(command=open_startup_settings)
-            
-        # 4. Initialize color scheme based on loaded config
-        if "colorblind_mode" in config_frame and hasattr(config_frame["colorblind_mode"], 'get'):
-            on_colorblind_change()
-
-
-# ==============================================================================
 # ==== Fullscreen & Resize Management
 # ==============================================================================
 prev_geometry = None
@@ -517,7 +567,7 @@ def _update_metric_display(key, history):
     if key == "CPU":
         freq_tuple = core.get_cpu_freq()
         freq_text = f"{freq_tuple[0]:>4.2f} GHz" if freq_tuple and freq_tuple[0] else " N/A "
-        lbl.config(foreground=lbl_color, text=f"CPU Usage: {val:>5.1f}%  CPU Speed: {freq_text}")
+        lbl.config(foreground=lbl_color, text=f"CPU Usage: {val:>5.1f}%  CPU Speed: {freq_text}")
     elif key == "RAM":
         ram_info = core.get_ram_info()
         used = ram_info.get('used', 0)
@@ -530,7 +580,7 @@ def _update_metric_display(key, history):
             overlay_lbl.place_configure(relx=new_relx)
     else: # GPU
         gpu_clocks = core.get_gpu_clock_speed()
-        lbl.config(foreground=lbl_color, text=f"{key} Usage: {val:>5.1f}%  Clock Speed: {gpu_clocks} Mhz")
+        lbl.config(foreground=lbl_color, text=f"{key} Usage: {val:>5.1f}%  Clock Speed: {gpu_clocks} Mhz")
 
     style.configure(bar._style_name, background=lbl_color)
     bar["value"] = val
@@ -594,7 +644,7 @@ def update_heavy_stats():
             procs = core.get_top_processes(limit=process_limit)
             load_avg = core.get_load_average()
             uptime = core.get_uptime()
-            top_text = "PID      USER          VIRT      RES   CPU%   MEM%   NAME\n" + "\n".join(procs)
+            top_text = "PID      USER          VIRT      RES   CPU%   MEM%   NAME\n" + "\n".join(procs)
 
             def apply_updates():
                 # --- Sys Info Tab ---
@@ -612,13 +662,13 @@ def update_heavy_stats():
                 net_out = network_results['out_MB']
                 lat = network_results['latency_ms']
                 info_labels["Net IN"].config(text=f"Net Download:{net_in:>6.2f} MB/s", foreground=get_net_color(net_in))
-                info_labels["Net OUT"].config(text=f"Net Upload:  {net_out:>6.2f} MB/s", foreground=get_net_color(net_out))
-                lat_text = f"Latency: {lat:>5.1f} ms" if lat is not None else "Latency:     N/A"
+                info_labels["Net OUT"].config(text=f"Net Upload:  {net_out:>6.2f} MB/s", foreground=get_net_color(net_out))
+                lat_text = f"Latency: {lat:>5.1f} ms" if lat is not None else "Latency:     N/A"
                 info_labels["Latency"].config(text=lat_text, foreground=get_latency_color(lat))
                 
                 # --- Processing Stats Tab ---
                 cpu_labels = widgets["CPU Stats"]
-                cpu_labels["Info"].config(text=f"CPU Load Avg: {load_avg}   Uptime: {uptime}")
+                cpu_labels["Info"].config(text=f"CPU Load Avg: {load_avg}   Uptime: {uptime}")
                 cpu_labels["Top Processes"].config(text=top_text)
                 
                 # --- Temperature Stats Tab ---
@@ -701,7 +751,7 @@ if __name__ == "__main__":
     os.chdir(script_dir)
     
     # Check for config file and run setup if not found
-    if not os.path.exists("startup_config.txt"):
+    if not os.path.exists(CONFIG_FILE):
         print("First launch: running startup setup...")
         try:
             # Determine which file to run (.exe takes precedence)
@@ -720,7 +770,7 @@ if __name__ == "__main__":
             # Reload config after setup completes
             load_config()
             
-            if not os.path.exists("startup_config.txt"):
+            if not os.path.exists(CONFIG_FILE):
                 sys.exit("Setup was not completed. Exiting.")
         except Exception as e:
             print(f"Could not run setup script: {e}")

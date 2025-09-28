@@ -21,18 +21,20 @@ except ImportError:
     CRT_GREEN = "#00FF00"
 # -------------------------------------------------------------------
 
+CONFIG_FILE = "startup_config.txt"
+
 # ==== Load README content for patch notes ====
 def load_patch_notes():
     """Load patch notes from README.md file or use a default."""
     default_patch_notes = """
 Current Patch Notes (Default):
-- Version 0.0.6
-- New: Configuration persistence in startup_config.txt
-- New: Enhanced temperature CRT graphics
-- New: Auto-cycling and smart focus with user settings
-- Fix: Button text preservation during startup loader
-- Fix: Improved config saving and loading
-- Enhanced: Fullscreen behavior on multi-monitor setups
+- Version 0.0.7
+- New: Live configuration saving - all changes save immediately
+- New: Complete user customization persistence
+- New: Enhanced config tab management with stay-in-tab functionality
+- Fix: Monitor selection properly persists across restarts
+- Fix: All thresholds (CPU, temp, latency) save instantly
+- Enhanced: Real-time config updates with validation
 
 Note: Check README.md for complete changelog and documentation.
 """
@@ -86,7 +88,7 @@ def load_config():
     }
 
     try:
-        with open("startup_config.txt", "r") as f:
+        with open(CONFIG_FILE, "r") as f:
             content = f.read().strip()
             try:
                 # Try to load as JSON (new format)
@@ -114,10 +116,11 @@ def load_config():
 def save_config(config):
     """Save configuration to file in JSON format."""
     try:
-        with open("startup_config.txt", "w") as f:
+        with open(CONFIG_FILE, "w") as f:
             # Ensure monitor_index is an integer for consistent storage
             config["monitor_index"] = int(config["monitor_index"])
             json.dump(config, f, indent=2)
+        print(f"Configuration saved to {CONFIG_FILE}")
     except Exception as e:
         print(f"Error saving config: {e}")
 
@@ -127,7 +130,7 @@ root.title("AlohaSnackBar Hardware Monitor - Setup")
 
 # Get screen dimensions and center the window
 window_width = 1000
-window_height = 450
+window_height = 600  # Slightly taller to accommodate new settings
 screen_width = root.winfo_screenwidth()
 screen_height = root.winfo_screenheight()
 position_top = int(screen_height / 2 - window_height / 2)
@@ -135,8 +138,8 @@ position_right = int(screen_width / 2 - window_width / 2)
 root.geometry(f'{window_width}x{window_height}+{position_right}+{position_top}')
 root.minsize(window_width, window_height)
 
+# Fixed: Don't call StyleBuilder methods - use bootstyle parameters instead
 style = tb.Style()
-style.configure("TCheckbutton", font=FONT_INFOTXT)
 bg_color = style.lookup('TNotebook.Tab', 'background')
 fg_color = style.lookup('TLabel', 'foreground')
 
@@ -148,7 +151,7 @@ main_frame = tk.Frame(root, bg=bg_color)
 main_frame.pack(expand=True, padx=20, pady=20, fill=BOTH)
 
 ## Section 1: Application Title
-title_frame = tb.LabelFrame(main_frame, text="alolasnackbar", bootstyle="success")
+title_frame = tb.LabelFrame(main_frame, text="alohasnackbar", bootstyle="success")
 title_frame.pack(fill="x", padx=5, pady=5)
 
 app_title = tb.Label(
@@ -191,6 +194,15 @@ controls_frame.pack(side=RIGHT, fill=BOTH, expand=True, padx=(10, 5), pady=5)
 # Variable to hold the selected monitor value. The value is set based on loaded config.
 # Note: Monitor index in config is 0 for Current Display, 1 for Display 1, 2 for Display 2, etc.
 monitor_choice = tk.StringVar(value=str(current_config.get("monitor_index", 0)))
+
+# Live saving function for monitor selection
+def on_monitor_change(*args):
+    """Save monitor selection immediately when changed."""
+    current_config["monitor_index"] = int(monitor_choice.get())
+    save_config(current_config)
+
+# Bind the monitor choice to auto-save
+monitor_choice.trace('w', on_monitor_change)
 
 # Radio button for starting on the current display
 start_options_label = tb.Label(
@@ -247,6 +259,78 @@ except Exception:
         foreground=fg_color
     )
     no_display_label.pack(anchor="w", padx=10, pady=5)
+
+tb.Separator(controls_frame, orient="horizontal").pack(fill="x", padx=10, pady=10)
+
+## Additional Configuration Settings (matching gui.py)
+config_section_label = tb.Label(
+    controls_frame,
+    text="Additional Settings:",
+    font=FONT_INFOTXT,
+    foreground=CRT_GREEN,
+    background=bg_color,
+    bootstyle="inverse-primary"
+)
+config_section_label.pack(anchor="w", padx=10, pady=(5, 0))
+
+# Create variables for additional config options
+config_vars = {}
+config_vars["cycle_enabled"] = tk.BooleanVar(value=current_config.get("cycle_enabled", False))
+config_vars["focus_enabled"] = tk.BooleanVar(value=current_config.get("focus_enabled", True))
+config_vars["colorblind_mode"] = tk.BooleanVar(value=current_config.get("colorblind_mode", False))
+config_vars["process_count"] = tk.IntVar(value=current_config.get("process_count", 5))
+
+# Live saving functions for additional settings
+def create_config_saver(key):
+    def save_setting(*args):
+        current_config[key] = config_vars[key].get()
+        save_config(current_config)
+    return save_setting
+
+# Bind all config variables to auto-save
+for key in config_vars:
+    config_vars[key].trace('w', create_config_saver(key))
+
+# Add checkboxes for boolean settings
+cycle_check = tb.Checkbutton(
+    controls_frame,
+    text="Enable auto tab cycling",
+    variable=config_vars["cycle_enabled"],
+    bootstyle="success"
+)
+cycle_check.pack(anchor="w", padx=15, pady=2)
+
+focus_check = tb.Checkbutton(
+    controls_frame,
+    text="Enable smart focus alerts",
+    variable=config_vars["focus_enabled"],
+    bootstyle="success"
+)
+focus_check.pack(anchor="w", padx=15, pady=2)
+
+colorblind_check = tb.Checkbutton(
+    controls_frame,
+    text="Colorblind-friendly mode",
+    variable=config_vars["colorblind_mode"],
+    bootstyle="success"
+)
+colorblind_check.pack(anchor="w", padx=15, pady=2)
+
+# Add process count setting
+process_frame = tk.Frame(controls_frame, bg=bg_color)
+process_frame.pack(anchor="w", padx=15, pady=2)
+
+process_label = tb.Label(process_frame, text="Process count:", font=("TkDefaultFont", 9))
+process_label.pack(side="left")
+
+process_spinbox = tb.Spinbox(
+    process_frame,
+    from_=1, to=20,
+    textvariable=config_vars["process_count"],
+    width=5,
+    bootstyle="success"
+)
+process_spinbox.pack(side="left", padx=(5, 0))
 
 tb.Separator(controls_frame, orient="horizontal").pack(fill="x", padx=10, pady=10)
 
@@ -412,9 +496,9 @@ def clear_startup_and_cache():
     # 2. Clear local configuration/cache file
     cleared_cache = False
     try:
-        if os.path.exists("startup_config.txt"):
-            os.remove("startup_config.txt")
-            print("Removed startup_config.txt.")
+        if os.path.exists(CONFIG_FILE):
+            os.remove(CONFIG_FILE)
+            print(f"Removed {CONFIG_FILE}.")
             cleared_cache = True
     except Exception as e:
         print(f"Error removing local cache file: {e}")
@@ -449,17 +533,12 @@ tb.Separator(controls_frame, orient="horizontal").pack(fill="x", padx=10, pady=1
 ## Main App Button
 def save_and_close():
     """Save configuration and start the main application."""
-    # 1. Update monitor index in config
-    # The value from the StringVar is a string (e.g., "0", "1", "2")
-    current_config["monitor_index"] = int(monitor_choice.get())
+    # Configuration is already saved by the trace callbacks, so we just start the app
     
-    # 2. Save the updated configuration to JSON file
-    save_config(current_config)
-    
-    # 3. Destroy the setup window
+    # Destroy the setup window
     root.destroy()
     
-    # 4. Run the main application (gui.exe takes precedence)
+    # Run the main application (gui.exe takes precedence)
     target_path, is_exe = get_target_file()
     
     if target_path:

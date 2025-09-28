@@ -103,9 +103,32 @@ def test_data_sources():
     
     return status
 
+def get_status_text(widget_key, status):
+    """Generate appropriate status text for debugging display."""
+    status_texts = {
+        'detected': 'Detected',
+        'missing': 'Missing',
+        'default': 'Partial'
+    }
+    
+    status_word = status_texts.get(status, 'Unknown')
+    
+    # Handle special cases for better debugging info
+    if widget_key == 'CPU_temp':
+        return f"CPU Temp: {status_word}"
+    elif widget_key == 'GPU_temp':
+        return f"GPU Temp: {status_word}"
+    elif widget_key == 'Disk I/O':
+        return f"Disk I/O: {status_word}"
+    elif widget_key == 'Sys Info':
+        return f"System: {status_word}"
+    else:
+        return f"{widget_key}: {status_word}"
+
 def update_widget_status(widgets, widget_key, status, style):
-    """Update widget visual status based on detection result."""
+    """Update widget visual status and text based on detection result."""
     color = STATUS_COLORS.get(status, STATUS_COLORS['default'])
+    status_text = get_status_text(widget_key, status)
     
     w = widgets.get(widget_key)
     if not w:
@@ -113,12 +136,20 @@ def update_widget_status(widgets, widget_key, status, style):
     
     # Handle progress bar widgets (CPU, GPU, RAM, Disk I/O)
     if isinstance(w, tuple) and len(w) == 5:
+        label, bar, _, _, _ = w
+        
+        # Update the label with detection status
+        try:
+            if hasattr(label, 'config'):
+                label.config(text=status_text, foreground=color)
+        except (tk.TclError, AttributeError):
+            pass
+        
         if widget_key == "Disk I/O":
             _, _, io_read_bar, io_write_bar, _ = w
             style.configure(io_read_bar._style_name, background=color)
             style.configure(io_write_bar._style_name, background=color)
         else:
-            _, bar, _, _, _ = w
             style.configure(bar._style_name, background=color)
     
     # Handle dictionary widgets (labels)
@@ -132,9 +163,14 @@ def update_widget_status(widgets, widget_key, status, style):
                     if widget_class in ('TButton', 'TCheckbutton', 'TScale', 'Button', 'Checkbutton', 'Scale'):
                         continue
                         
-                    # Only apply color to labels and text widgets
+                    # Only apply color and status text to labels and text widgets
                     if widget_class in ('TLabel', 'Label', 'Text', 'Entry'):
-                        widget.config(foreground=color)
+                        # For the main info widgets, show detection status
+                        if key in ['CPU Model', 'GPU', 'DISK', 'Uptime', 'Info']:
+                            widget.config(text=status_text, foreground=color)
+                        else:
+                            # For other labels, just update color
+                            widget.config(foreground=color)
                         
             except (tk.TclError, AttributeError):
                 pass
@@ -155,13 +191,13 @@ def cycle_notebook_tabs(widgets, current_cycle, max_cycles, detection_status, st
     current_tab = current_cycle % tab_count
     notebook.select(current_tab)
     
-    # Update status display for current tab
+    # Show detection status in the current tab
     tab_text = notebook.tab(current_tab, "text")
     
-    # Show detection status in the current tab
+    # Update detection status display for visible widgets in current tab
     if tab_text in detection_status:
         status = detection_status[tab_text]
-        # You could add visual indicators here for the specific tab content
+        update_widget_status(widgets, tab_text, status, style)
         
     if current_cycle < max_cycles:
         # Continue cycling
@@ -178,15 +214,27 @@ def reset_widget_styles(widgets, style):
     for key, w_group in widgets.items():
         if isinstance(w_group, tuple) and len(w_group) == 5:
             try:
+                # Unpack the label and bar widgets
+                label, bar, _, _, _ = w_group
+
                 if key == "Disk I/O":
                     _, _, io_read_bar, io_write_bar, _ = w_group
+                    
+                    # Correction: Reset the label foreground color
+                    if hasattr(label, 'config'):
+                        label.config(foreground=CRT_GREEN) 
+                    
                     # Reset to original IO bar colors
                     style.configure(io_read_bar._style_name, background=CRT_GREEN)
                     style.configure(io_write_bar._style_name, background="white")
                 else:
-                    _, bar, _, _, _ = w_group
-                    # Reset to default progress bar color (will be updated by GUI)
+                    # Original logic for other progress bars (CPU, RAM, GPU)
                     style.configure(bar._style_name, background=CRT_GREEN)
+
+                # Also reset the label color for all other progress bar labels
+                if key != "Disk I/O" and hasattr(label, 'config'):
+                    label.config(foreground=CRT_GREEN)
+                    
             except (tk.TclError, AttributeError):
                 pass
 
@@ -228,13 +276,20 @@ def end_loading(widgets, style, on_complete=None):
         # Handles progress bars stored in tuples (e.g., CPU, RAM)
         if isinstance(w_group, tuple) and len(w_group) == 5:
             try:
+                label, bar, _, _, _ = w_group
+                
+                # Reset progress bar values
                 if key == "Disk I/O":
                     _, _, io_read_bar, io_write_bar, _ = w_group
                     io_read_bar["value"] = 0
                     io_write_bar["value"] = 0
                 else:
-                    _, bar, _, _, _ = w_group
                     bar["value"] = 0
+                
+                # Clear detection status text from labels
+                if hasattr(label, 'config'):
+                    label.config(text="")
+                    
             except (tk.TclError, AttributeError):
                 pass
 
@@ -264,7 +319,7 @@ def startup_loader(root, widgets, style, on_complete=None):
     """
     Enhanced startup loader with value detection and debug visualization.
     Shows detection status with colors and cycles through tabs.
-    FIXED: Now properly protects interactive widgets during all phases.
+    FIXED: Now properly protects interactive widgets during all phases and shows detection text.
     """
     detection_status = {}
     
@@ -298,12 +353,20 @@ def startup_loader(root, widgets, style, on_complete=None):
                 
                 # Set initial red color and animate
                 if isinstance(w, tuple) and len(w) == 5:
+                    label, bar, _, _, _ = w
+                    
+                    # Show "Loading..." text on the label
+                    try:
+                        if hasattr(label, 'config'):
+                            label.config(text=f"{key}: Loading...", foreground=STATUS_COLORS['default'])
+                    except (tk.TclError, AttributeError):
+                        pass
+                    
                     if key == "Disk I/O":
                         _, _, io_read_bar, io_write_bar, _ = w
                         fill_bar_gradually(io_read_bar, max_value=DISK_IO_MAX_MBPS, color=STATUS_COLORS['default'])
                         fill_bar_gradually(io_write_bar, max_value=DISK_IO_MAX_MBPS, color=STATUS_COLORS['default'])
                     else:
-                        _, bar, _, _, _ = w
                         fill_bar_gradually(bar, color=STATUS_COLORS['default'])
                 
                 elif isinstance(w, dict):
@@ -316,9 +379,12 @@ def startup_loader(root, widgets, style, on_complete=None):
                                 if widget_class in ('TButton', 'TCheckbutton', 'TScale', 'Button', 'Checkbutton', 'Scale'):
                                     continue
                                     
-                                # Only apply loading text to labels and text widgets
+                                # Only apply loading text to main info labels
                                 if widget_class in ('TLabel', 'Label', 'Text', 'Entry'):
-                                    widget.config(text="Loading...", foreground=STATUS_COLORS['default'])
+                                    if widget_key in ['CPU Model', 'GPU', 'DISK', 'Uptime', 'Info']:
+                                        widget.config(text=f"{key}: Loading...", foreground=STATUS_COLORS['default'])
+                                    else:
+                                        widget.config(foreground=STATUS_COLORS['default'])
                                     
                         except (tk.TclError, AttributeError):
                             pass
@@ -330,20 +396,20 @@ def startup_loader(root, widgets, style, on_complete=None):
         root.after(delay + 500, detection_phase)
     
     def detection_phase():
-        """Phase 2: Test data sources and update colors."""
+        """Phase 2: Test data sources and update colors and text."""
         def test_in_background():
             nonlocal detection_status
             detection_status = test_data_sources()
             
-            # Update widget colors based on detection
+            # Update widget colors and text based on detection
             root.after(0, lambda: update_detection_display())
         
         def update_detection_display():
             for widget_key, status in detection_status.items():
                 update_widget_status(widgets, widget_key, status, style)
             
-            # Add some delay to show the color changes
-            root.after(1000, tab_cycling_phase)
+            # Add some delay to show the color changes and detection text
+            root.after(1500, tab_cycling_phase)  # Longer delay to read detection results
         
         # Run detection in background thread to avoid blocking UI
         threading.Thread(target=test_in_background, daemon=True).start()
