@@ -391,6 +391,7 @@ load_config()
 
 root = tb.Window(themename="darkly")
 root.title("AlohaSnackBar Hardware Monitor")
+root.iconbitmap('nohead_test.ico')
 root.minsize(580, 450) # Set minimum size to maintain readability
 
 # --- Initial Geometry ---
@@ -423,25 +424,25 @@ except Exception:
 
 style = tb.Style()
 
-# ==============================================================================
-# ==== Menu Bar
-# ==============================================================================
-main_menu = tb.Menu(root)
-root.config(menu=main_menu)
+# # ==============================================================================
+# # ==== Menu Bar DEPRECATED FOR NOW BUT KEEP JUST IN CASE
+# # ==============================================================================
+# main_menu = tb.Menu(root)
+# root.config(menu=main_menu)
 
-file_menu = tb.Menu(main_menu, tearoff=0)
-main_menu.add_cascade(label="Run", menu=file_menu)
-file_menu.add_command(label="Check Update", command=lambda: print("Update check clicked"))
-file_menu.add_separator()
-file_menu.add_command(label="Exit", command=root.quit)
+# file_menu = tb.Menu(main_menu, tearoff=0)
+# main_menu.add_cascade(label="Run", menu=file_menu)
+# file_menu.add_command(label="Check Update", command=lambda: print("Update check clicked"))
+# file_menu.add_separator()
+# file_menu.add_command(label="Exit", command=root.quit)
 
-control_menu = tb.Menu(main_menu, tearoff=0)
-main_menu.add_cascade(label="Control", menu=control_menu)
-control_menu.add_command(label="Startup Settings", command=open_startup_settings)
+# control_menu = tb.Menu(main_menu, tearoff=0)
+# main_menu.add_cascade(label="Control", menu=control_menu)
+# control_menu.add_command(label="Startup Settings", command=open_startup_settings)
 
-help_menu = tb.Menu(main_menu, tearoff=0)
-main_menu.add_cascade(label="Help", menu=help_menu)
-help_menu.add_command(label="WatDoing (Help)", command=lambda: print("Help clicked"))
+# help_menu = tb.Menu(main_menu, tearoff=0)
+# main_menu.add_cascade(label="Help", menu=help_menu)
+# help_menu.add_command(label="WatDoing (Help)", command=lambda: print("Help clicked"))
 
 # ==============================================================================
 # ==== Build Widgets & Graphics
