@@ -38,6 +38,16 @@ config_tab_was_manually_selected = False
 MAIN_TABS_COUNT = 4 # Only cycle through first 4 tabs (excluding config)
 current_color_scheme = {} # Will be set by load_config and update_color_scheme
 
+# -- relative path function for packaging
+def resource_path(rel_path):
+    """Return absolute path to resource, works for dev and PyInstaller --onedir"""
+    if getattr(sys, "frozen", False):
+        # PyInstaller onedir/unpacked sets sys._MEIPASS or uses cwd of exe; safer to use exe dir
+        base = os.path.dirname(sys.executable)
+    else:
+        base = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, rel_path)
+
 # --- Refactored Startup & Configuration ---
 def load_config():
     """Reads the configuration from the JSON file."""
@@ -391,7 +401,7 @@ load_config()
 
 root = tb.Window(themename="darkly")
 root.title("AlohaSnackBar Hardware Monitor")
-root.iconbitmap('nohead_test.ico')
+root.iconbitmap(resource_path('nohead_test.ico'))
 root.minsize(580, 450) # Set minimum size to maintain readability
 
 # --- Initial Geometry ---

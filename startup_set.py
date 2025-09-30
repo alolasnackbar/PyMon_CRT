@@ -14,6 +14,16 @@ from datetime import datetime
 
 CONFIG_FILE = "startup_config.txt"
 
+# -- relative path function for packaging
+def resource_path(rel_path):
+    """Return absolute path to resource, works for dev and PyInstaller --onedir"""
+    if getattr(sys, "frozen", False):
+        # PyInstaller onedir/unpacked sets sys._MEIPASS or uses cwd of exe; safer to use exe dir
+        base = os.path.dirname(sys.executable)
+    else:
+        base = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, rel_path)
+
 # ==== Load README content for patch notes ====
 def load_patch_notes():
     """Load patch notes from README.md file or use a default."""
@@ -111,7 +121,7 @@ def save_config(config):
 
 # ==== Main GUI setup ====
 root = tb.Window(themename="darkly")
-root.iconbitmap('nohead_test.ico')
+root.iconbitmap(resource_path('nohead_test.ico'))
 root.title("AlohaSnackBar Hardware Monitor - Setup")
 
 window_width = 1069
