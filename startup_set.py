@@ -11,14 +11,19 @@ import shutil
 import json
 import threading
 from datetime import datetime
+try:
+    import debug_core
+except ImportError:
+    debug_core = None
 
 CONFIG_FILE = "startup_config.txt"
 
+
 # -- relative path function for packaging
 def resource_path(rel_path):
-    """Return absolute path to resource, works for dev and PyInstaller --onedir"""
+    """Return path to resource (works for script and PyInstaller onedir)."""
     if getattr(sys, "frozen", False):
-        # PyInstaller onedir/unpacked sets sys._MEIPASS or uses cwd of exe; safer to use exe dir
+        # When bundled by PyInstaller, the exe is in the same folder we want
         base = os.path.dirname(sys.executable)
     else:
         base = os.path.dirname(os.path.abspath(__file__))
@@ -121,6 +126,25 @@ def save_config(config):
 
 # ==== Main GUI setup ====
 root = tb.Window(themename="darkly")
+# safe icon loading:
+try:
+    icon_file = resource_path("nohead_test.ico")
+    if os.path.exists(icon_file):
+        root.iconbitmap(icon_file)
+    else:
+        # fallback: try PNG via Pillow and iconphoto (more flexible)
+        try:
+            from PIL import Image, ImageTk
+            png = resource_path("nohead_test.png")
+            if os.path.exists(png):
+                root._icon_img = ImageTk.PhotoImage(Image.open(png))
+                root.iconphoto(False, root._icon_img)
+        except Exception:
+            # silent fallback to default icon
+            pass
+except tk.TclError as e:
+    # Do not crash the app; print a warning instead
+    print("Warning: failed to set window icon:", e)
 root.iconbitmap(resource_path('nohead_test.ico'))
 root.title("AlohaSnackBar Hardware Monitor - Setup")
 
@@ -407,20 +431,22 @@ def run_diagnostic():
     
     def diagnostic_thread():
         try:
-            sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-            
-            try:
-                import debug_core
+            if debug_core is None:
+                # Try dynamic import as fallback
+                sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+                import debug_core as dc
                 from importlib import reload
-                reload(debug_core)
-            except ImportError as e:
-                write_to_console(f"✗ Cannot import debug_core: {e}\n", "red")
-                return
+                reload(dc)
+            else:
+                # Use pre-imported module
+                from importlib import reload
+                dc = debug_core
+                reload(dc)
             
             write_to_console("[MODULE CHECK]\n", "magenta")
             write_to_console("-"*60 + "\n", "white")
             
-            result = debug_core.run_diagnostics()
+            result = dc.run_diagnostics()
             
             output_lines = result.get_plain_text().split('\n')
             for line in output_lines:
@@ -484,8 +510,16 @@ def show_monitor_info():
 ## Startup and Cleanup Logic
 def get_target_file():
     """Determine the path and type of the file to execute (EXE takes precedence)."""
-    script_path = os.path.abspath("gui.py")
-    exe_path = os.path.abspath("gui.exe")
+    # Get the directory where this executable/script is located
+    if getattr(sys, 'frozen', False):
+        # Running as compiled executable
+        app_dir = os.path.dirname(sys.executable)
+    else:
+        # Running as script
+        app_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    exe_path = os.path.join(app_dir, "gui.exe")
+    script_path = os.path.join(app_dir, "gui.py")
 
     if os.path.exists(exe_path):
         return exe_path, True
@@ -500,8 +534,17 @@ def setup_startup_boot():
     target_path, is_exe = get_target_file()
 
     if target_path is None:
-        log_console("Error: gui.py/gui.exe not found", "error")
-        tb.dialogs.Messagebox.show_error("Neither gui.py nor gui.exe found in current directory. Cannot set startup.", "Error")
+        # Get app directory for error message
+        if getattr(sys, 'frozen', False):
+            app_dir = os.path.dirname(sys.executable)
+        else:
+            app_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        log_console(f"Error: gui not found in {app_dir}", "error")
+        tb.dialogs.Messagebox.show_error(
+            f"Neither gui.py nor gui.exe found in {app_dir}. Cannot set startup.", 
+            "Error"
+        )
         return
 
     if sys.platform.startswith('win'):
@@ -706,13 +749,18 @@ def save_and_close():
             else:
                 subprocess.run([sys.executable, target_path], check=True)
         except FileNotFoundError:
-            print("Error: The main application file was not found.")
+            print(f"Error: The main application file was not found at: {target_path}")
         except subprocess.CalledProcessError as e:
             print(f"Error: The main application failed to run. Process returned {e.returncode}.")
         except Exception as e:
             print(f"An unexpected error occurred while trying to run the main application: {e}")
     else:
-        print("Error: Cannot start the monitor. Neither gui.py nor gui.exe found.")
+        # Get app directory for error message
+        if getattr(sys, 'frozen', False):
+            app_dir = os.path.dirname(sys.executable)
+        else:
+            app_dir = os.path.dirname(os.path.abspath(__file__))
+        print(f"Error: Cannot start the monitor. Neither gui.py nor gui.exe found in {app_dir}")
 
 start_button = tb.Button(
     controls_frame,

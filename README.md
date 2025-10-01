@@ -3,17 +3,18 @@
 -ttkbootstrap
 -wmi (cache)
 
-# version 0.0.9 as of last updated
-- New: user_config konsole logging and detection in start_up
-- New: better handling with error detection on loadup
+# version 0.1.0 as of last updated
+- New: THE BIG PACKAGE UPDATE using pyinstaller :D
+- New: stable latest --> 
 - Adjusted: Debugging konsole added in start_up window section
 - Adjusted: better startup_settings and new buttons for monitor info
-- Deprecating: File menu will be moved into config tab for styling issues (deprecated)
+- Adjusted: read sections and debug logging for .exe double gui opens
 _________________________________________________________________________
 ________  unavailable until further notice ______________________________
-- temp cpu/gpu added, cpu needs elevated privelageds in win
+- temp cpu/gpu added, cpu needs elevated privs in win
 - net stats limited (limited in psutils)
 - Bug: missing? for partial detection in loadup
+- Bug?: double gui opens whatdoing
 - Bug: check why ram bar doesn't align for lower end resolution layouts. 
 
 ## ==== Feature to do list ======

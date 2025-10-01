@@ -40,9 +40,9 @@ current_color_scheme = {} # Will be set by load_config and update_color_scheme
 
 # -- relative path function for packaging
 def resource_path(rel_path):
-    """Return absolute path to resource, works for dev and PyInstaller --onedir"""
+    """Return path to resource (works for script and PyInstaller onedir)."""
     if getattr(sys, "frozen", False):
-        # PyInstaller onedir/unpacked sets sys._MEIPASS or uses cwd of exe; safer to use exe dir
+        # When bundled by PyInstaller, the exe is in the same folder we want
         base = os.path.dirname(sys.executable)
     else:
         base = os.path.dirname(os.path.abspath(__file__))
@@ -104,9 +104,17 @@ def open_startup_settings():
     """Closes the current GUI and re-runs the startup settings script."""
     root.destroy()
     
-    # Determine which file to run (.exe takes precedence)
-    script_path = os.path.abspath("startup_set.py")
-    exe_path = os.path.abspath("startup_set.exe")
+    # Get the directory where the executable/script is located
+    if getattr(sys, 'frozen', False):
+        # Running as compiled executable
+        app_dir = os.path.dirname(sys.executable)
+    else:
+        # Running as script
+        app_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # Look for startup_set in the same directory as this executable
+    exe_path = os.path.join(app_dir, "startup_set.exe")
+    script_path = os.path.join(app_dir, "startup_set.py")
     
     if os.path.exists(exe_path):
         target_path = exe_path
@@ -115,7 +123,7 @@ def open_startup_settings():
         target_path = script_path
         args = [sys.executable, target_path]
     else:
-        print("Error: Neither startup_set.py nor startup_set.exe found.")
+        print(f"Error: Neither startup_set.py nor startup_set.exe found in {app_dir}")
         return
 
     try:
@@ -400,6 +408,26 @@ def setup_config_bindings():
 load_config()
 
 root = tb.Window(themename="darkly")
+# safe icon loading:
+try:
+    icon_file = resource_path("nohead_test.ico")
+    if os.path.exists(icon_file):
+        root.iconbitmap(icon_file)
+    else:
+        # fallback: try PNG via Pillow and iconphoto (more flexible)
+        try:
+            from PIL import Image, ImageTk
+            png = resource_path("nohead_test.png")
+            if os.path.exists(png):
+                root._icon_img = ImageTk.PhotoImage(Image.open(png))
+                root.iconphoto(False, root._icon_img)
+        except Exception:
+            # silent fallback to default icon
+            pass
+except tk.TclError as e:
+    # Do not crash the app; print a warning instead
+    print("Warning: failed to set window icon:", e)
+    
 root.title("AlohaSnackBar Hardware Monitor")
 root.iconbitmap(resource_path('nohead_test.ico'))
 root.minsize(580, 450) # Set minimum size to maintain readability
@@ -765,28 +793,31 @@ if __name__ == "__main__":
     if not os.path.exists(CONFIG_FILE):
         print("First launch: running startup setup...")
         try:
-            # Determine which file to run (.exe takes precedence)
-            script_path = os.path.abspath("startup_set.py")
-            exe_path = os.path.abspath("startup_set.exe")
+            # Get the directory where the executable/script is located
+            if getattr(sys, 'frozen', False):
+                app_dir = os.path.dirname(sys.executable)
+            else:
+                app_dir = os.path.dirname(os.path.abspath(__file__))
+            
+            exe_path = os.path.join(app_dir, "startup_set.exe")
+            script_path = os.path.join(app_dir, "startup_set.py")
             
             if os.path.exists(exe_path):
                 args = [exe_path]
             elif os.path.exists(script_path):
                 args = [sys.executable, script_path]
             else:
-                sys.exit("Error: startup_set.py or startup_set.exe not found. Exiting.")
+                sys.exit(f"Error: startup_set not found in {app_dir}. Exiting.")
             
             subprocess.run(args, check=True)
             
-            # Reload config after setup completes
-            load_config()
+            # EXIT HERE - Don't continue running this instance
+            sys.exit(0)  # <-- ADD THIS LINE
             
-            if not os.path.exists(CONFIG_FILE):
-                sys.exit("Setup was not completed. Exiting.")
         except Exception as e:
             print(f"Could not run setup script: {e}")
             sys.exit(1)
 
-    # The config is loaded above, so startup_loader can use it.
+    # This only runs if CONFIG_FILE exists (not first launch)
     startup_loader(root, widgets, style, on_complete=start_app)
     root.mainloop()
