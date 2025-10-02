@@ -2,6 +2,6 @@
 *.log
 __pycache__/
 __pycache__/*.pyc
-__build__/*
-__dist__/*
+build/
+dist/
 startup_config.txt
