@@ -8,26 +8,8 @@ import platform
 import re
 import subprocess
 from constants import CRT_GREEN, CRT_GRID, MAX_POINTS, CRT_LINE_SMOT, FONT_TITLE, GRAPH_HEIGHT
-
-# Placeholder for monitor_core functions, assuming they exist
-# In a real app, you would import these from your monitor_core.py file
-try:
-    import monitor_core as core
-    import psutil
-except ImportError:
-    class MockMonitorCore:
-        def get_cpu_usage(self): return 50.0
-        def get_ram_usage(self): return 35.0
-        def get_gpu_usage(self): return 20.0
-        def get_disk_io(self, interval=1): return 150.0, 75.0
-        def get_primary_interface(self): return "eth0"
-    core = MockMonitorCore()
-    class MockPsutil:
-        def net_io_counters(self, pernic=True):
-            if pernic:
-                return {"eth0": type('MockNet', (object,), {'bytes_sent': 1000, 'bytes_recv': 2000})()}
-            return type('MockNet', (object,), {'bytes_sent': 1000, 'bytes_recv': 2000})()
-    psutil = MockPsutil()
+import monitor_core as core
+import psutil
 
 # --- Color Helper Function for Redrawing ---
 def get_usage_color(value):
