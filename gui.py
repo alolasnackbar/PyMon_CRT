@@ -675,6 +675,7 @@ def update_heavy_stats():
             
             # Fetch all data in the background
             cpu_info = core.get_cpu_info()
+            freq_tuple = core.get_cpu_freq()
             gpu_info = core.get_gpu_info() or "N/A"
             disk_use = core.get_disk_summary()
             cpu_temp = core.get_cpu_temp()
@@ -691,7 +692,8 @@ def update_heavy_stats():
                 info_labels["CPU Model"].config(text=f"CPU Model: {cpu_info.get('model', 'N/A')}")
                 cores = cpu_info.get('physical_cores', 'N/A')
                 threads = cpu_info.get('logical_cores', 'N/A')
-                info_labels["Cores"].config(text=f"{cores} CORES | {threads} THREADS")
+                turbo_pct = ((freq_tuple[0] - freq_tuple[2]) / freq_tuple[2]) * 100
+                info_labels["Cores"].config(text=f"{freq_tuple[2]} BASE SPEED | {turbo_pct:+.1f}% CORE MAX | {cores} CORES | {threads} THREADS")
                 info_labels["GPU"].config(text=f"GPU: {gpu_info} | {gpu_clocks} Mhz")
                 info_labels["DISK"].config(text=f"DISK USAGE: {disk_use}")
                 info_labels["Uptime"].config(text=f"Uptime: {uptime}")
