@@ -702,8 +702,15 @@ def update_heavy_stats():
                 net_in = network_results['in_MB']
                 net_out = network_results['out_MB']
                 lat = network_results['latency_ms']
-                info_labels["Net IN"].config(text=f"Net Download:{net_in:>6.2f} MB/s", foreground=get_net_color(net_in))
-                info_labels["Net OUT"].config(text=f"Net Upload:  {net_out:>6.2f} MB/s", foreground=get_net_color(net_out))
+
+                # Combined network display on one line
+                info_labels["Net IN"].config(
+                    text = f"Net Down/Upload: {net_in:4.2f}🡫 {net_out:4.2f}🡩 MBs", 
+                    foreground=get_net_color(max(net_in, net_out))
+                )
+                # Remove or hide the Net OUT label since we combined it
+                #info_labels["Net OUT"].config(text="")  # Hide the second label
+
                 lat_text = f"Latency: {lat:>5.1f} ms" if lat is not None else "Latency:     N/A"
                 info_labels["Latency"].config(text=lat_text, foreground=get_latency_color(lat))
                 

@@ -104,10 +104,10 @@ def build_metrics(root, style):
             f_net = tb.Frame(nb)
             nb.add(f_net, text="Network Stats")
             f_net.columnconfigure(0, weight=1)
-            net_in_lbl = tb.Label(f_net, text="Net Download: ... MB/s", anchor="w", font=FONT_NETTXT, foreground=CRT_GREEN)
+            net_in_lbl = tb.Label(f_net, text="Network Download/Upload", anchor="w", font=FONT_NETTXT, foreground=CRT_GREEN)
             net_in_lbl.grid(row=0, column=0, sticky="ew", padx=4, pady=1)
-            net_out_lbl = tb.Label(f_net, text="Net Upload: ... MB/s", anchor="w", font=FONT_NETTXT, foreground=CRT_GREEN)
-            net_out_lbl.grid(row=1, column=0, sticky="ew", padx=4, pady=1)
+            # net_out_lbl = tb.Label(f_net, text="Net Upload: ... MB/s", anchor="w", font=FONT_NETTXT, foreground=CRT_GREEN)
+            # net_out_lbl.grid(row=1, column=0, sticky="ew", padx=4, pady=1)
             latency_lbl = tb.Label(f_net, text="Latency: ... ms", anchor="w", font=FONT_NETTXT, foreground=CRT_GREEN)
             latency_lbl.grid(row=2, column=0, sticky="ew", padx=4, pady=1)
 
@@ -290,7 +290,7 @@ def build_metrics(root, style):
             widgets["Temp Stats"] = temp_widgets
             widgets["Config"] = config_widgets
             info_labels["Net IN"] = net_in_lbl
-            info_labels["Net OUT"] = net_out_lbl
+            #info_labels["Net OUT"] = net_out_lbl
             info_labels["Latency"] = latency_lbl
             widgets[name] = info_labels # Legacy compatibility
 

@@ -5,3 +5,4 @@ __pycache__/*.pyc
 build/
 dist/
 startup_config.txt
+game_servers.txt
