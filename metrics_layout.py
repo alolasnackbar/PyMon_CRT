@@ -104,12 +104,67 @@ def build_metrics(root, style):
             f_net = tb.Frame(nb)
             nb.add(f_net, text="Network Stats")
             f_net.columnconfigure(0, weight=1)
-            net_in_lbl = tb.Label(f_net, text="Network Download/Upload", anchor="w", font=FONT_NETTXT, foreground=CRT_GREEN)
-            net_in_lbl.grid(row=0, column=0, sticky="ew", padx=4, pady=1)
-            # net_out_lbl = tb.Label(f_net, text="Net Upload: ... MB/s", anchor="w", font=FONT_NETTXT, foreground=CRT_GREEN)
-            # net_out_lbl.grid(row=1, column=0, sticky="ew", padx=4, pady=1)
-            latency_lbl = tb.Label(f_net, text="Latency: ... ms", anchor="w", font=FONT_NETTXT, foreground=CRT_GREEN)
+
+            # --- Network Download/Upload (multi-label, single line) ---
+            net_frame = tb.Frame(f_net)
+            net_frame.grid(row=0, column=0, sticky="w", padx=4, pady=1)
+
+            # Prefix and static suffix labels (stay green)
+            net_prefix_lbl = tb.Label(
+                net_frame,
+                text="Net Down/Upload:",
+                anchor="w",
+                font=FONT_NETTXT,
+                foreground=CRT_GREEN
+            )
+            net_suffix_lbl = tb.Label(
+                net_frame,
+                text="MBs",
+                anchor="w",
+                font=FONT_NETTXT,
+                foreground=CRT_GREEN
+            )
+
+            # Dynamic colored labels
+            net_in_lbl = tb.Label(
+                net_frame,
+                text="0.00🡫",
+                anchor="w",
+                font=FONT_NETTXT,
+                foreground=CRT_GREEN  # initial color
+            )
+            net_out_lbl = tb.Label(
+                net_frame,
+                text="0.00🡩",
+                anchor="w",
+                font=FONT_NETTXT,
+                foreground=CRT_GREEN  # initial color
+            )
+
+            # Pack horizontally to mimic a single-line string
+            net_prefix_lbl.pack(side="left")
+            net_in_lbl.pack(side="left", padx=(4, 2))
+            net_out_lbl.pack(side="left", padx=(2, 4))
+            net_suffix_lbl.pack(side="left")
+
+            # --- Latency label ---
+            latency_lbl = tb.Label(
+                f_net,
+                text="Latency: ... ms",
+                anchor="w",
+                font=FONT_NETTXT,
+                foreground=CRT_GREEN
+            )
             latency_lbl.grid(row=2, column=0, sticky="ew", padx=4, pady=1)
+
+            # --- Store references in info_labels for easy updates ---
+            info_labels["NetFrame"] = net_frame
+            info_labels["NetPrefix"] = net_prefix_lbl
+            info_labels["Net IN"] = net_in_lbl
+            info_labels["Net OUT"] = net_out_lbl
+            info_labels["NetSuffix"] = net_suffix_lbl
+            info_labels["Latency"] = latency_lbl
+            
 
             # --- Tab 4: Temperature Stats ---
             f_temp = tb.Frame(nb)

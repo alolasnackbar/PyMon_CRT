@@ -698,22 +698,40 @@ def update_heavy_stats():
                 info_labels["DISK"].config(text=f"DISK USAGE: {disk_use}")
                 info_labels["Uptime"].config(text=f"Uptime: {uptime}")
 
+            
                 # --- Network & Latency ---
                 net_in = network_results['in_MB']
                 net_out = network_results['out_MB']
                 lat = network_results['latency_ms']
 
                 # Combined network display on one line
-                info_labels["Net IN"].config(
-                    text = f"Net Down/Upload: {net_in:4.2f}🡫 {net_out:4.2f}🡩 MBs", 
-                    foreground=get_net_color(max(net_in, net_out))
+                info_labels["NetPrefix"].config(
+                    text = f"Net Down/Upload:", 
+                    foreground=get_latency_color(lat)
                 )
-                # Remove or hide the Net OUT label since we combined it
-                #info_labels["Net OUT"].config(text="")  # Hide the second label
 
+                # Only update the numeric parts with color changes
+                info_labels["Net IN"].config(
+                    text=f"{net_in:.2f}🡫",
+                    foreground=get_net_color(net_in)
+                )
+                info_labels["Net OUT"].config(
+                    text=f"{net_out:.2f}🡩",
+                    foreground=get_net_color(net_out)
+                )
+
+                info_labels["NetSuffix"].config(
+                    text = f"MBs", 
+                    foreground=get_latency_color(lat)
+                )
+
+                # Latency (whole label stays one color)
                 lat_text = f"Latency: {lat:>5.1f} ms" if lat is not None else "Latency:     N/A"
-                info_labels["Latency"].config(text=lat_text, foreground=get_latency_color(lat))
-                
+                info_labels["Latency"].config(
+                    text=lat_text,
+                    foreground=get_latency_color(lat)
+                )
+                                
                 # --- Processing Stats Tab ---
                 cpu_labels = widgets["CPU Stats"]
                 cpu_labels["Info"].config(text=f"CPU Load Avg: {load_avg}   Uptime: {uptime}")
