@@ -17,8 +17,8 @@ def get_usage_color(value):
     Determines the color for a usage value (e.g., CPU, GPU, RAM)
     based on predefined thresholds.
     """
-    if value is None: return "#00FF00"  # Green
-    if value < 60: return "#00FF00"      # Green
+    if value is None: return CRT_GREEN     # Green #"#00FF00" 
+    if value < 60: return CRT_GREEN        # Green
     elif value < 80: return "#FFFF00"    # Yellow
     else: return "#FF0000"               # Red
 

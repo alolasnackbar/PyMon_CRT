@@ -91,14 +91,39 @@ def build_metrics(root, style):
             f_cpu = tb.Frame(nb)
             nb.add(f_cpu, text="Processing Stats")
             f_cpu.columnconfigure(0, weight=1)
-            f_cpu.rowconfigure(1, weight=1) # Let process list expand
+            f_cpu.rowconfigure(1, weight=1)  # Let process list expand
+
             cpu_labels = {}
-            cpu_info_lbl = tb.Label(f_cpu, text="CPU: ... Uptime: ...", anchor="w", font=FONT_INFOTXT, foreground=CRT_GREEN)
+
+            # Info label at top
+            cpu_info_lbl = tb.Label(
+                f_cpu, 
+                text="CPU: ... Uptime: ...", 
+                anchor="w", 
+                font=FONT_INFOTXT, 
+                foreground=CRT_GREEN
+            )
             cpu_info_lbl.grid(row=0, column=0, sticky="ew", padx=4, pady=2)
             cpu_labels["Info"] = cpu_info_lbl
-            cpu_top_lbl = tb.Label(f_cpu, text="PID USER VIRT RES CPU% MEM% NAME", anchor="w", font=("Consolas", 9), foreground=CRT_GREEN, justify="left")
-            cpu_top_lbl.grid(row=1, column=0, sticky="new", padx=4, pady=4)
-            cpu_labels["Top Processes"] = cpu_top_lbl
+
+            # TOP PROCESSES - Changed from Label to Text widget for colorization
+            cpu_top_text = tk.Text(
+                f_cpu,
+                font=("Consolas", 9),
+                background=style.colors.bg,  # Use ttkbootstrap theme background
+                foreground=CRT_GREEN,
+                relief="flat",
+                wrap="none",
+                state="disabled",
+                height=15,  # Adjust height as needed
+                width=85,   # Adjust width as needed
+                cursor="arrow",  # Don't show text editing cursor
+                borderwidth=0,
+                highlightthickness=0
+            )
+            cpu_top_text.grid(row=1, column=0, sticky="nsew", padx=4, pady=4)
+            cpu_labels["Top Processes"] = cpu_top_text
+            
 
             # --- Tab 3: Network Stats ---
             f_net = tb.Frame(nb)

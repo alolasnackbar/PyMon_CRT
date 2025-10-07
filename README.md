@@ -3,11 +3,12 @@
 -ttkbootstrap
 -wmi (cache)
 
-# version 0.1.0 as of last updated
-- New: THE BIG PACKAGE UPDATE using pyinstaller :D
-- New: stable latest --> 
-- Adjusted: Debugging konsole added in start_up window section
-- Adjusted: better startup_settings and new buttons for monitor info
+# version 0.1.1 as of last updated
+- New: stable latest --> (download link should be here lol)
+- New: process tabs include colour for high cpu usages detection
+- New: networks tabs include colour for high network usages detection
+- Bug fix: Colour Discrepancy on helper functions
+- Bug fix: Graphics CPU changing colours when resized.
 - Adjusted: read sections and debug logging for .exe double gui opens
 _________________________________________________________________________
 ________  unavailable until further notice ______________________________

@@ -530,6 +530,20 @@ def get_usage_color(value):
     elif value < cpu_threshold: return get_color('warning')
     else: return get_color('danger')
 
+def parse_cpu_from_process_line(line):
+    """Extract CPU percentage from a process line.
+    Expected format: PID USER VIRT RES CPU% MEM% NAME
+    Example: 1234 user 100.5M 50.2M 45.3 2.1 chrome.exe
+    """
+    try:
+        parts = line.split()
+        if len(parts) >= 7:  # Ensure we have enough columns
+            cpu_str = parts[4]  # CPU% is the 5th column (index 4)
+            return float(cpu_str)
+    except (ValueError, IndexError):
+        pass
+    return 0.0
+
 def get_net_color(value):
     # Colors for network speed (higher is better)
     if value is None or value < 1: return get_color('success')
@@ -619,7 +633,7 @@ def _update_metric_display(key, history):
             overlay_lbl.place_configure(relx=new_relx)
     else: # GPU
         gpu_clocks = core.get_gpu_clock_speed()
-        lbl.config(foreground=lbl_color, text=f"{key} Usage: {val:>5.1f}%  Clock Speed: {gpu_clocks} Mhz")
+        lbl.config(foreground=lbl_color, text=f"{key} Usage: {val:>5.1f}%  GPU Speed: {gpu_clocks} MHz")
 
     style.configure(bar._style_name, background=lbl_color)
     bar["value"] = val
@@ -684,7 +698,6 @@ def update_heavy_stats():
             procs = core.get_top_processes(limit=process_limit)
             load_avg = core.get_load_average()
             uptime = core.get_uptime()
-            top_text = "PID      USER          VIRT      RES   CPU%   MEM%   NAME\n" + "\n".join(procs)
 
             def apply_updates():
                 # --- Sys Info Tab ---
@@ -698,19 +711,15 @@ def update_heavy_stats():
                 info_labels["DISK"].config(text=f"DISK USAGE: {disk_use}")
                 info_labels["Uptime"].config(text=f"Uptime: {uptime}")
 
-            
                 # --- Network & Latency ---
                 net_in = network_results['in_MB']
                 net_out = network_results['out_MB']
                 lat = network_results['latency_ms']
 
-                # Combined network display on one line
                 info_labels["NetPrefix"].config(
                     text = f"Net Down/Upload:", 
                     foreground=get_latency_color(lat)
                 )
-
-                # Only update the numeric parts with color changes
                 info_labels["Net IN"].config(
                     text=f"{net_in:.2f}🡫",
                     foreground=get_net_color(net_in)
@@ -719,34 +728,50 @@ def update_heavy_stats():
                     text=f"{net_out:.2f}🡩",
                     foreground=get_net_color(net_out)
                 )
-
                 info_labels["NetSuffix"].config(
                     text = f"MBs", 
                     foreground=get_latency_color(lat)
                 )
 
-                # Latency (whole label stays one color)
                 lat_text = f"Latency: {lat:>5.1f} ms" if lat is not None else "Latency:     N/A"
                 info_labels["Latency"].config(
                     text=lat_text,
                     foreground=get_latency_color(lat)
                 )
                                 
-                # --- Processing Stats Tab ---
+                # --- Processing Stats Tab (COLORIZED VERSION) ---
                 cpu_labels = widgets["CPU Stats"]
                 cpu_labels["Info"].config(text=f"CPU Load Avg: {load_avg}   Uptime: {uptime}")
-                cpu_labels["Top Processes"].config(text=top_text)
+
+                # Colorize the process list using Text widget
+                proc_widget = cpu_labels["Top Processes"]
+                proc_widget.configure(state="normal")
+                proc_widget.delete("1.0", "end")
+
+                # Insert header without color
+                header = "PID      USER      VIRT  RES   CPU%   MEM%   NAME\n"
+                proc_widget.insert("end", header)
+
+                # Insert each process line with color based on CPU usage
+                for proc_line in procs:
+                    cpu_pct = parse_cpu_from_process_line(proc_line)
+                    color = get_usage_color(cpu_pct)
+                    
+                    # Create unique tag for this line
+                    tag_name = f"cpu_{cpu_pct}_{id(proc_line)}"
+                    proc_widget.insert("end", proc_line + "\n", tag_name)
+                    proc_widget.tag_config(tag_name, foreground=color)
+
+                proc_widget.configure(state="disabled")
                 
                 # --- Temperature Stats Tab ---
                 if "Temp Stats" in widgets:
                     temp_widgets = widgets["Temp Stats"]
 
-                    # Update combined CPU/GPU line with colors
                     if "Temp_Label" in temp_widgets:
                         cpu_text = f"{cpu_temp:.0f}°C" if cpu_temp is not None else "... °C"
                         gpu_text = f"{gpu_temp:.0f}°C" if gpu_temp is not None else "... °C"
 
-                        # Clear and reinsert with tags
                         temp_widgets["Temp_Label"].configure(state="normal")
                         temp_widgets["Temp_Label"].delete("1.0", "end")
 
@@ -754,7 +779,6 @@ def update_heavy_stats():
                         temp_widgets["Temp_Label"].insert("end", " | ")
                         temp_widgets["Temp_Label"].insert("end", f"GPU: {gpu_text}", "gpu")
 
-                        # Assuming CRT_GREEN is defined in constants
                         temp_widgets["Temp_Label"].tag_config("cpu", foreground=CRT_GREEN)
                         temp_widgets["Temp_Label"].tag_config("gpu", foreground="white")
 
