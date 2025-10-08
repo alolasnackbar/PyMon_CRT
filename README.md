@@ -6,7 +6,7 @@
 # version 0.1.1 as of last updated
 - New: stable latest --> (download link should be here lol)
 - New: process tabs include colour for high cpu usages detection
-- New: networks tabs include colour for high network usages detection
+- New: networks tabs include colour for high upload/download detection
 - Bug fix: Colour Discrepancy on helper functions
 - Bug fix: Graphics CPU changing colours when resized.
 - Adjusted: read sections and debug logging for .exe double gui opens

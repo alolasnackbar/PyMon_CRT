@@ -1,17 +1,23 @@
+"""
+Network Monitor Tab Module
+Combines network statistics monitoring with game server ping testing
+"""
+
 import os
 import re
 import subprocess
 import time
 import psutil
 import tkinter as tk
-from tkinter import ttk
-import ttkbootstrap as ttkb
-from ttkbootstrap.constants import *
+import ttkbootstrap as tb
 import threading
-from queue import Queue
 from concurrent.futures import ThreadPoolExecutor
 
-# --- Server Configuration ---
+
+# ============================================================================
+# CORE - Server Configuration & Network Functions
+# ============================================================================
+
 DEFAULT_SERVERS_FILE = "game_servers.txt"
 
 def load_game_servers(filepath=DEFAULT_SERVERS_FILE):
@@ -101,7 +107,6 @@ def ping_server_fast(host_address, ping_count=10):
     try:
         is_windows = os.name == 'nt'
         
-        # Use faster ping with shorter timeout
         if is_windows:
             command = ['ping', host_address, '-n', str(ping_count), '-w', '2000']
         else:
@@ -111,39 +116,30 @@ def ping_server_fast(host_address, ping_count=10):
             command,
             capture_output=True,
             text=True,
-            timeout=max(15, ping_count),  # More generous timeout
+            timeout=max(15, ping_count),
             check=False
         )
 
         output = result.stdout
         
-        # Debug: Print raw output (comment out after testing)
-        print(f"DEBUG - Ping to {host_address}:")
-        print(f"Return code: {result.returncode}")
-        print(f"Output: {output[:200]}")  # First 200 chars
-        
         stats = {
             "avg": None,
             "min": None,
             "max": None,
-            "packet_loss": 100.0,  # Default to 100% loss
+            "packet_loss": 100.0,
             "sent": ping_count,
             "received": 0,
             "jitter": None
         }
         
         if is_windows:
-            # Check for "Request timed out" or other errors
             if "Request timed out" in output or "could not find host" in output:
-                print(f"DEBUG - Windows ping failed: Request timed out or host not found")
                 return None
             
-            # Fast regex parsing
             loss_match = re.search(r'\((\d+)%', output)
             if loss_match:
                 stats["packet_loss"] = float(loss_match.group(1))
             else:
-                # Try alternative format
                 loss_match2 = re.search(r'Lost = \d+ \((\d+)%', output)
                 if loss_match2:
                     stats["packet_loss"] = float(loss_match2.group(1))
@@ -152,10 +148,8 @@ def ping_server_fast(host_address, ping_count=10):
             if recv_match:
                 stats["received"] = int(recv_match.group(1))
             
-            # Single regex for all stats - try multiple patterns
             stat_match = re.search(r'Minimum = (\d+)ms, Maximum = (\d+)ms, Average = (\d+)ms', output)
             if not stat_match:
-                # Try without spaces
                 stat_match = re.search(r'Minimum=(\d+)ms,Maximum=(\d+)ms,Average=(\d+)ms', output)
             
             if stat_match:
@@ -163,13 +157,9 @@ def ping_server_fast(host_address, ping_count=10):
                 stats["max"] = float(stat_match.group(2))
                 stats["avg"] = float(stat_match.group(3))
                 stats["jitter"] = round((stats["max"] - stats["min"]) / 2, 1)
-            else:
-                print(f"DEBUG - Could not parse Windows ping stats")
                 
         else:
-            # Check for errors
             if "100% packet loss" in output or "Unreachable" in output:
-                print(f"DEBUG - Unix ping failed: 100% packet loss")
                 return None
             
             loss_match = re.search(r'(\d+)% packet loss', output)
@@ -186,26 +176,19 @@ def ping_server_fast(host_address, ping_count=10):
                 stats["avg"] = float(rtt_match.group(2))
                 stats["max"] = float(rtt_match.group(3))
                 stats["jitter"] = float(rtt_match.group(4))
-            else:
-                print(f"DEBUG - Could not parse Unix ping stats")
         
-        # Check if we got any valid data
         if stats["avg"] is None and stats["received"] == 0:
-            print(f"DEBUG - No valid ping data received")
             return None
             
-        print(f"DEBUG - Success! Avg: {stats['avg']}ms, Loss: {stats['packet_loss']}%")
         return stats
     except subprocess.TimeoutExpired:
-        print(f"DEBUG - Ping timeout expired for {host_address}")
         return None
     except Exception as e:
-        print(f"DEBUG - Ping exception: {e}")
         return None
 
 
 def get_primary_interface():
-    """Auto-select the main active interface - cached version."""
+    """Auto-select the main active interface."""
     try:
         stats = psutil.net_io_counters(pernic=True)
         for iface, data in stats.items():
@@ -218,7 +201,6 @@ def get_primary_interface():
                 elif "wlan" in low or "wifi" in low:
                     return iface
         
-        # Return first active interface
         for iface, data in stats.items():
             low = iface.lower()
             if low not in ("lo", "loopback") and "docker" not in low and data.bytes_sent > 0:
@@ -281,7 +263,6 @@ def quick_ping(host, count=3):
         return None
 
 
-# --- Color Functions ---
 def get_net_color(speed_MB):
     """Return color based on network speed."""
     if speed_MB > 10:
@@ -312,12 +293,215 @@ def get_latency_color(lat_ms):
         return "#ff0000"
 
 
-# --- GUI Application ---
-class NetworkMonitorGUI:
-    def __init__(self, root):
+# ============================================================================
+# LAYOUT - UI Construction
+# ============================================================================
+
+def create_network_tab(nb, info_labels, FONT_NETTXT, CRT_GREEN):
+    """
+    Create the Network Stats tab with all widgets.
+    
+    Args:
+        nb: Notebook widget to add the tab to
+        info_labels: Dictionary to store widget references
+        FONT_NETTXT: Font for network text
+        CRT_GREEN: Default green color for text
+    
+    Returns:
+        Dictionary containing server-related data for the tab
+    """
+    # --- Tab 3: Network Stats ---
+    f_net = tb.Frame(nb)
+    nb.add(f_net, text="Network Stats")
+    f_net.columnconfigure(0, weight=1)
+
+    # --- Network Download/Upload (multi-label, single line) ---
+    net_frame = tb.Frame(f_net)
+    net_frame.grid(row=0, column=0, sticky="w", padx=4, pady=1)
+
+    # Prefix and static suffix labels (stay green)
+    net_prefix_lbl = tb.Label(
+        net_frame,
+        text="Net Down/Upload:",
+        anchor="w",
+        font=FONT_NETTXT,
+        foreground=CRT_GREEN
+    )
+    net_suffix_lbl = tb.Label(
+        net_frame,
+        text="MBs",
+        anchor="w",
+        font=FONT_NETTXT,
+        foreground=CRT_GREEN
+    )
+
+    # Dynamic colored labels
+    net_in_lbl = tb.Label(
+        net_frame,
+        text="0.00🡫",
+        anchor="w",
+        font=FONT_NETTXT,
+        foreground=CRT_GREEN
+    )
+    net_out_lbl = tb.Label(
+        net_frame,
+        text="0.00🡩",
+        anchor="w",
+        font=FONT_NETTXT,
+        foreground=CRT_GREEN
+    )
+
+    # Pack horizontally to mimic a single-line string
+    net_prefix_lbl.pack(side="left")
+    net_in_lbl.pack(side="left", padx=(4, 2))
+    net_out_lbl.pack(side="left", padx=(2, 4))
+    net_suffix_lbl.pack(side="left")
+
+    # --- Latency + Ping Button Row ---
+    latency_frame = tb.Frame(f_net)
+    latency_frame.grid(row=1, column=0, sticky="ew", padx=4, pady=1)
+    latency_frame.columnconfigure(0, weight=1)
+
+    latency_lbl = tb.Label(
+        latency_frame,
+        text="Latency: ... ms",
+        anchor="w",
+        font=FONT_NETTXT,
+        foreground=CRT_GREEN
+    )
+    latency_lbl.pack(side="left")
+
+    # Ping button
+    ping_btn = tb.Button(
+        latency_frame,
+        text="Ping",
+        command=None,  # Will be set in main
+        bootstyle="success-outline",
+        width=8
+    )
+    ping_btn.pack(side="right", padx=2)
+
+    # --- Separator ---
+    separator1 = tb.Separator(f_net, orient="horizontal")
+    separator1.grid(row=2, column=0, sticky="ew", padx=4, pady=6)
+
+    # --- Server Selection Row ---
+    server_select_frame = tb.Frame(f_net)
+    server_select_frame.grid(row=3, column=0, sticky="ew", padx=4, pady=2)
+    server_select_frame.columnconfigure(1, weight=1)
+
+    # Server dropdown
+    server_combo_label = tb.Label(
+        server_select_frame,
+        text="Server:",
+        anchor="w",
+        font=FONT_NETTXT,
+        foreground=CRT_GREEN
+    )
+    server_combo_label.grid(row=0, column=0, sticky="w", padx=(0, 4))
+
+    selected_server = tk.StringVar()
+    server_combo = tb.Combobox(
+        server_select_frame,
+        textvariable=selected_server,
+        values=[],  # Will be populated from game_servers.txt
+        state="readonly",
+        font=("Courier", 9),
+        width=30
+    )
+    server_combo.grid(row=0, column=1, sticky="ew", padx=(0, 4))
+
+    # Config button
+    config_btn = tb.Button(
+        server_select_frame,
+        text="⚙",
+        command=None,  # Will be set in main
+        bootstyle="info-outline",
+        width=3
+    )
+    config_btn.grid(row=0, column=2, sticky="e")
+
+    # Status label for ping results
+    ping_status_lbl = tb.Label(
+        f_net,
+        text="Select server and click Ping to test",
+        anchor="w",
+        font=("Courier", 9),
+        foreground="#888888"
+    )
+    ping_status_lbl.grid(row=4, column=0, sticky="w", padx=4, pady=2)
+
+    # Results frame with scrollable text
+    results_frame = tb.Frame(f_net)
+    results_frame.grid(row=5, column=0, sticky="nsew", padx=4, pady=2)
+    results_frame.rowconfigure(0, weight=1)
+    results_frame.columnconfigure(0, weight=1)
+
+    # Configure f_net to expand results
+    f_net.rowconfigure(5, weight=1)
+
+    # Results text widget
+    results_text = tk.Text(
+        results_frame,
+        height=10,
+        font=("Courier", 9),
+        bg="#1a1a1a",
+        fg=CRT_GREEN,
+        insertbackground=CRT_GREEN,
+        state=tk.DISABLED,
+        wrap=tk.WORD,
+        relief="sunken",
+        borderwidth=1
+    )
+    results_text.grid(row=0, column=0, sticky="nsew")
+
+    # Scrollbar
+    results_scrollbar = tb.Scrollbar(results_frame, command=results_text.yview)
+    results_scrollbar.grid(row=0, column=1, sticky="ns")
+    results_text.config(yscrollcommand=results_scrollbar.set)
+
+    # --- Store references in info_labels for easy updates ---
+    info_labels["NetFrame"] = net_frame
+    info_labels["NetPrefix"] = net_prefix_lbl
+    info_labels["Net IN"] = net_in_lbl
+    info_labels["Net OUT"] = net_out_lbl
+    info_labels["NetSuffix"] = net_suffix_lbl
+    info_labels["Latency"] = latency_lbl
+    info_labels["ServerCombo"] = server_combo
+    info_labels["SelectedServer"] = selected_server
+    info_labels["PingButton"] = ping_btn
+    info_labels["PingStatus"] = ping_status_lbl
+    info_labels["ResultsText"] = results_text
+    info_labels["ConfigButton"] = config_btn
+
+    # Latency display state
+    info_labels["LatencyMode"] = "normal"  # "normal" or "server"
+    info_labels["LatencyRevertTimer"] = None
+    
+    # Return tab-specific data
+    return {
+        "ping_btn": ping_btn,
+        "config_btn": config_btn
+    }
+
+
+# ============================================================================
+# MAIN - Application Logic & Integration
+# ============================================================================
+
+class NetworkTabController:
+    """Controller for the Network Tab - handles all business logic."""
+    
+    def __init__(self, root, info_labels):
+        """
+        Initialize the network tab controller.
+        
+        Args:
+            root: Main Tkinter root window
+            info_labels: Dictionary containing widget references
+        """
         self.root = root
-        self.root.title("Network Monitor with Server Ping")
-        self.root.geometry("800x600")
+        self.info_labels = info_labels
         
         # Initialize cache and threading
         self.cache = PingCache()
@@ -325,126 +509,29 @@ class NetworkMonitorGUI:
         self.interface = get_primary_interface()
         
         # Load servers
+        self.servers = {}
+        self.server_list = []
+        
+        # Monitoring state
+        self.monitoring = True
+        
+        # Start background workers
+        self.start_background_workers()
+    
+    def load_servers(self):
+        """Load game servers and populate the dropdown."""
         self.servers = load_game_servers()
         self.server_list = list(self.servers.keys())
         
-        # Selected server
-        self.selected_server = tk.StringVar()
-        if self.server_list:
-            self.selected_server.set(self.server_list[0])
+        # Format server names for dropdown
+        display_names = [f"{self.servers[k]['name']} ({self.servers[k]['region']})" 
+                        for k in self.server_list]
         
-        # Ping results
-        self.ping_in_progress = False
+        server_combo = self.info_labels["ServerCombo"]
+        server_combo['values'] = display_names
         
-        # Create UI
-        self.create_widgets()
-        
-        # Start background workers
-        self.monitoring = True
-        self.start_background_workers()
-        
-        # Start UI updates
-        self.update_ui()
-    
-    def create_widgets(self):
-        """Create all UI widgets."""
-        main_frame = ttkb.Frame(self.root, padding=10)
-        main_frame.pack(fill=BOTH, expand=YES)
-        
-        # Title
-        title_label = ttkb.Label(
-            main_frame, 
-            text="Network & Server Monitor", 
-            font=("Helvetica", 16, "bold"),
-            bootstyle="primary"
-        )
-        title_label.pack(pady=(0, 10))
-        
-        # Network Stats Frame
-        net_frame = ttkb.LabelFrame(main_frame, text="Network Statistics", padding=10)
-        net_frame.pack(fill=X, pady=(0, 10))
-        
-        self.info_labels = {}
-        
-        # Net Download/Upload (combined on one line)
-        net_combined_label = ttkb.Label(net_frame, text="Net Down/Upload: 0.00/0.00 MB/s", font=("Courier", 11))
-        net_combined_label.pack(anchor=W, pady=2)
-        self.info_labels["Net Combined"] = net_combined_label
-        
-        # Latency
-        lat_label = ttkb.Label(net_frame, text="Latency:         N/A", font=("Courier", 11))
-        lat_label.pack(anchor=W, pady=2)
-        self.info_labels["Latency"] = lat_label
-        
-        # Server Ping Frame
-        server_frame = ttkb.LabelFrame(main_frame, text="Game Server Ping Test", padding=10)
-        server_frame.pack(fill=BOTH, expand=YES, pady=(0, 10))
-        
-        # Server selection row
-        select_frame = ttkb.Frame(server_frame)
-        select_frame.pack(fill=X, pady=(0, 10))
-        
-        ttkb.Label(select_frame, text="Select Server:", font=("Helvetica", 10)).pack(side=LEFT, padx=(0, 10))
-        
-        server_combo = ttkb.Combobox(
-            select_frame,
-            textvariable=self.selected_server,
-            values=[f"{self.servers[k]['name']} ({self.servers[k]['region']})" for k in self.server_list],
-            state="readonly",
-            width=40
-        )
-        server_combo.pack(side=LEFT, padx=(0, 10))
-        
-        # Ping button
-        self.ping_btn = ttkb.Button(
-            select_frame,
-            text="Ping Server",
-            command=self.run_ping_test,
-            bootstyle="success",
-            width=15
-        )
-        self.ping_btn.pack(side=LEFT, padx=(0, 10))
-        
-        # Config button
-        config_btn = ttkb.Button(
-            select_frame,
-            text="Edit Servers",
-            command=self.open_config,
-            bootstyle="info-outline",
-            width=15
-        )
-        config_btn.pack(side=LEFT)
-        
-        # Results frame
-        results_frame = ttkb.Frame(server_frame)
-        results_frame.pack(fill=BOTH, expand=YES)
-        
-        # Status label
-        self.status_label = ttkb.Label(
-            results_frame,
-            text="Select a server and click 'Ping Server' to test",
-            font=("Helvetica", 10),
-            bootstyle="secondary"
-        )
-        self.status_label.pack(pady=(0, 10))
-        
-        # Results display
-        self.results_text = tk.Text(
-            results_frame,
-            height=12,
-            font=("Courier", 10),
-            bg="#2b2b2b",
-            fg="#ffffff",
-            insertbackground="#ffffff",
-            state=DISABLED
-        )
-        self.results_text.pack(fill=BOTH, expand=YES)
-        
-        # Scrollbar
-        scrollbar = ttkb.Scrollbar(self.results_text)
-        scrollbar.pack(side=RIGHT, fill=Y)
-        self.results_text.config(yscrollcommand=scrollbar.set)
-        scrollbar.config(command=self.results_text.yview)
+        if display_names:
+            self.info_labels["SelectedServer"].set(display_names[0])
     
     def start_background_workers(self):
         """Start background threads for measurements."""
@@ -453,21 +540,21 @@ class NetworkMonitorGUI:
             while self.monitoring:
                 net_in, net_out = measure_network_usage(self.interface, interval=0.2)
                 self.cache.set_net(net_in, net_out)
-                time.sleep(0.8)  # Update every second total
+                time.sleep(0.8)
         
         # Latency worker
         def lat_worker():
             while self.monitoring:
                 lat = quick_ping("8.8.8.8", count=3)
                 self.cache.set_lat(lat)
-                time.sleep(2)  # Update every 2 seconds
+                time.sleep(2)
         
         # Start workers
         threading.Thread(target=net_worker, daemon=True).start()
         threading.Thread(target=lat_worker, daemon=True).start()
     
-    def update_ui(self):
-        """Update UI with cached data - runs on main thread."""
+    def update_network_display(self):
+        """Update network stats display - call this from your main update loop."""
         if not self.monitoring:
             return
         
@@ -477,30 +564,44 @@ class NetworkMonitorGUI:
         
         # Determine color based on higher of the two speeds
         max_speed = max(net_in, net_out)
-        net_color = get_net_color(max_speed)
+        in_color = get_net_color(net_in)
+        out_color = get_net_color(net_out)
         
-        # Update combined network label
-        self.info_labels["Net Combined"].config(
-            text=f"Net Down/Upload: {net_in:>5.2f}/{net_out:>5.2f} MB/s",
-            foreground=net_color
+        # Update network labels
+        self.info_labels["Net IN"].config(
+            text=f"{net_in:>5.2f}🡫",
+            foreground=in_color
+        )
+        self.info_labels["Net OUT"].config(
+            text=f"{net_out:>5.2f}🡩",
+            foreground=out_color
         )
         
-        lat_text = f"Latency:         {lat:>5.1f} ms" if lat is not None else "Latency:         N/A"
-        self.info_labels["Latency"].config(
-            text=lat_text,
-            foreground=get_latency_color(lat)
-        )
-        
-        # Schedule next UI update (fast refresh)
-        self.root.after(100, self.update_ui)
+        # Only update latency if in normal mode (not showing server ping)
+        if self.info_labels["LatencyMode"] == "normal":
+            lat_text = f"Latency: {lat:>5.1f} ms" if lat is not None else "Latency: N/A"
+            self.info_labels["Latency"].config(
+                text=lat_text,
+                foreground=get_latency_color(lat)
+            )
     
-    def run_ping_test(self):
-        """Run ping test in background thread."""
-        if self.ping_in_progress:
+    def run_server_ping_test(self):
+        """Run ping test in background thread and update latency display."""
+        ping_btn = self.info_labels["PingButton"]
+        status_lbl = self.info_labels["PingStatus"]
+        latency_lbl = self.info_labels["Latency"]
+        
+        if ping_btn['state'] == 'disabled':
             return
         
+        # Cancel any existing revert timer
+        if self.info_labels["LatencyRevertTimer"]:
+            self.root.after_cancel(self.info_labels["LatencyRevertTimer"])
+            self.info_labels["LatencyRevertTimer"] = None
+        
         # Get selected server
-        selected_text = self.selected_server.get()
+        selected_text = self.info_labels["SelectedServer"].get()
+        
         server_key = None
         for key in self.server_list:
             if f"{self.servers[key]['name']} ({self.servers[key]['region']})" == selected_text:
@@ -513,106 +614,110 @@ class NetworkMonitorGUI:
         server = self.servers[server_key]
         
         # Update UI
-        self.ping_in_progress = True
-        self.ping_btn.config(state=DISABLED, text="Pinging...")
-        self.status_label.config(
-            text=f"Testing {server['name']} ({server['ip']})...",
-            bootstyle="warning"
-        )
+        ping_btn.config(state='disabled', text="...")
+        status_lbl.config(text=f"Pinging {server['name']}...", foreground="#ffaa00")
+        self.info_labels["LatencyMode"] = "server"
+        latency_lbl.config(text="Latency: Pinging...", foreground="#ffaa00")
         
-        # Run in executor
-        self.executor.submit(self.ping_thread, server)
-    
-    def ping_thread(self, server):
-        """Background thread for ping test with fallback."""
-        stats = ping_server_fast(server['ip'], ping_count=15)
+        # Run in background thread
+        def ping_thread():
+            stats = ping_server_fast(server['ip'], ping_count=15)
+            
+            # Try fallback if needed
+            used_fallback = False
+            if stats is None and server.get('fallback'):
+                stats = ping_server_fast(server['fallback'], ping_count=15)
+                used_fallback = True if stats is not None else False
+            
+            # Update UI on main thread
+            self.root.after(0, self.display_ping_results, server, stats, used_fallback)
         
-        # If server is unreachable and has fallback, try fallback
-        used_fallback = False
-        if stats is None and server.get('fallback'):
-            fallback_ip = server['fallback']
-            stats = ping_server_fast(fallback_ip, ping_count=15)
-            used_fallback = True if stats is not None else False
-        
-        self.root.after(0, self.display_ping_results, server, stats, used_fallback)
+        threading.Thread(target=ping_thread, daemon=True).start()
     
     def display_ping_results(self, server, stats, used_fallback=False):
-        """Display ping results in the text widget."""
-        self.ping_in_progress = False
-        self.ping_btn.config(state=NORMAL, text="Ping Server")
+        """Display ping results and update latency display."""
+        ping_btn = self.info_labels["PingButton"]
+        status_lbl = self.info_labels["PingStatus"]
+        results_text = self.info_labels["ResultsText"]
+        latency_lbl = self.info_labels["Latency"]
+        
+        ping_btn.config(state='normal', text="Ping")
         
         if stats is None:
-            self.status_label.config(
-                text=f"❌ {server['name']} - UNREACHABLE",
-                bootstyle="danger"
-            )
-            fallback_note = f"\n\nNote: Server and fallback DNS ({server.get('fallback', 'N/A')}) both unreachable" if server.get('fallback') else ""
-            self.update_results_text(f"Server: {server['name']} ({server['region']})\nIP: {server['ip']}\n\nStatus: UNREACHABLE{fallback_note}\n")
-            return
-        
-        # Determine status
-        avg = stats['avg'] if stats['avg'] else 999
-        loss = stats['packet_loss']
-        
-        if loss > 5:
-            status = "❌ Poor Connection"
-            status_style = "danger"
-        elif avg < 50:
-            status = "✓ Excellent"
-            status_style = "success"
-        elif avg < 100:
-            status = "⚠ Good"
-            status_style = "warning"
+            status_lbl.config(text=f"❌ {server['name']} - UNREACHABLE", foreground="#ff0000")
+            latency_lbl.config(text="Latency: UNREACHABLE", foreground="#ff0000")
+            result = f"Server: {server['name']} ({server['region']})\nIP: {server['ip']}\n\nStatus: UNREACHABLE\n"
+            if server.get('fallback'):
+                result += f"\nFallback DNS also unreachable: {server['fallback']}"
         else:
-            status = "⚠ Fair"
-            status_style = "warning"
-        
-        # Add fallback indicator to status
-        if used_fallback:
-            status = f"{status} (Fallback DNS)"
-            self.status_label.config(
-                text=f"{status} - {server['name']}",
-                bootstyle=status_style
+            avg = stats['avg'] if stats['avg'] else 999
+            loss = stats['packet_loss']
+            
+            # Determine status
+            if loss > 5:
+                status = "❌ Poor"
+                color = "#ff0000"
+            elif avg < 50:
+                status = "✓ Excellent"
+                color = "#00ff00"
+            elif avg < 100:
+                status = "⚠ Good"
+                color = "#ffff00"
+            else:
+                status = "⚠ Fair"
+                color = "#ffaa00"
+            
+            if used_fallback:
+                status += " (Fallback)"
+            
+            status_lbl.config(text=f"{status} - {server['name']}", foreground=color)
+            
+            # Update latency display with server ping
+            self.info_labels["LatencyMode"] = "server"
+            latency_lbl.config(
+                text=f"Latency: {avg:.1f} ms ({server['name']})",
+                foreground=color
             )
-        else:
-            self.status_label.config(
-                text=f"{status} - {server['name']}",
-                bootstyle=status_style
-            )
-        
-        # Format results
-        fallback_info = ""
-        if used_fallback:
-            fallback_info = f"\n⚠ NOTE: Primary server blocked ping. Using fallback DNS: {server.get('fallback')}\n   This shows network quality to the region, not the exact game server.\n"
-        
-        result_text = f"""Server: {server['name']} ({server['region']})
-IP: {server['ip']}{fallback_info}
+            
+            # Format results
+            result = f"""Server: {server['name']} ({server['region']})
+IP: {server['ip']}
+{'⚠ Using fallback DNS: ' + server.get('fallback', '') if used_fallback else ''}
 
-═══════════════════════════════════════════════════════
+{'='*45}
 PING STATISTICS
-═══════════════════════════════════════════════════════
+{'='*45}
 
-Average Ping:    {stats['avg']:.1f} ms
-Minimum Ping:    {stats['min']:.1f} ms
-Maximum Ping:    {stats['max']:.1f} ms
-Jitter:          {stats['jitter']:.1f} ms
-Packet Loss:     {stats['packet_loss']:.0f}% ({stats['received']}/{stats['sent']} received)
+Average:      {stats['avg']:.1f} ms
+Minimum:      {stats['min']:.1f} ms
+Maximum:      {stats['max']:.1f} ms
+Jitter:       {stats['jitter']:.1f} ms
+Packet Loss:  {stats['packet_loss']:.0f}% ({stats['received']}/{stats['sent']})
 
 Status: {status}
 """
         
-        self.update_results_text(result_text)
+        # Update text widget
+        results_text.config(state=tk.NORMAL)
+        results_text.delete(1.0, tk.END)
+        results_text.insert(1.0, result)
+        results_text.config(state=tk.DISABLED)
+        
+        # Schedule revert to normal latency after 5 seconds
+        def revert_latency():
+            if self.info_labels["LatencyMode"] == "server":
+                self.info_labels["LatencyMode"] = "normal"
+                self.info_labels["LatencyRevertTimer"] = None
+        
+        if self.info_labels["LatencyRevertTimer"]:
+            self.root.after_cancel(self.info_labels["LatencyRevertTimer"])
+        
+        self.info_labels["LatencyRevertTimer"] = self.root.after(5000, revert_latency)
     
-    def update_results_text(self, text):
-        """Update the results text widget."""
-        self.results_text.config(state=NORMAL)
-        self.results_text.delete(1.0, END)
-        self.results_text.insert(1.0, text)
-        self.results_text.config(state=DISABLED)
-    
-    def open_config(self):
+    def open_server_config(self):
         """Open the server configuration file."""
         filepath = os.path.abspath(DEFAULT_SERVERS_FILE)
+        status_lbl = self.info_labels["PingStatus"]
         
         try:
             if os.name == 'nt':
@@ -623,26 +728,123 @@ Status: {status}
                 else:
                     subprocess.run(['xdg-open', filepath])
             
-            self.status_label.config(
-                text=f"Opened {DEFAULT_SERVERS_FILE} - Restart to reload servers",
-                bootstyle="info"
+            status_lbl.config(
+                text="Config opened - Restart to reload",
+                foreground="#00aaff"
             )
         except Exception as e:
-            self.status_label.config(
-                text=f"Error opening config: {e}",
-                bootstyle="danger"
+            status_lbl.config(
+                text=f"Error: {e}",
+                foreground="#ff0000"
             )
     
-    def on_closing(self):
-        """Handle window closing."""
+    def shutdown(self):
+        """Clean shutdown of background threads."""
         self.monitoring = False
         self.executor.shutdown(wait=False)
-        self.root.destroy()
 
 
-# --- Main ---
+# ============================================================================
+# INTEGRATION HELPER
+# ============================================================================
+
+def integrate_network_tab(root, nb, info_labels, FONT_NETTXT, CRT_GREEN):
+    """
+    Complete integration function - call this from your main application.
+    
+    Args:
+        root: Main Tkinter root window
+        nb: Notebook widget to add the tab to
+        info_labels: Dictionary to store widget references
+        FONT_NETTXT: Font for network text
+        CRT_GREEN: Default green color for text
+    
+    Returns:
+        NetworkTabController instance for managing the tab
+    
+    Example usage in main application:
+        network_controller = integrate_network_tab(root, nb, info_labels, FONT_NETTXT, CRT_GREEN)
+        
+        # In your main update loop:
+        def update_ui():
+            network_controller.update_network_display()
+            # ... other updates ...
+            root.after(100, update_ui)
+        
+        # On application close:
+        network_controller.shutdown()
+    """
+    # Create the UI layout
+    tab_widgets = create_network_tab(nb, info_labels, FONT_NETTXT, CRT_GREEN)
+    
+    # Create the controller
+    controller = NetworkTabController(root, info_labels)
+    
+    # Wire up the button commands
+    tab_widgets["ping_btn"].config(command=controller.run_server_ping_test)
+    tab_widgets["config_btn"].config(command=controller.open_server_config)
+    
+    # Load servers
+    controller.load_servers()
+    
+    return controller
+
+
+# ============================================================================
+# STANDALONE DEMO - Run this file directly to test
+# ============================================================================
+
 if __name__ == "__main__":
-    root = ttkb.Window(themename="darkly")
-    app = NetworkMonitorGUI(root)
-    root.protocol("WM_DELETE_WINDOW", app.on_closing)
+    """Standalone demo - run this file directly to test the network tab."""
+    
+    # Create main window
+    root = tb.Window(themename="darkly")
+    root.title("Network Monitor - Standalone Demo")
+    root.geometry("900x700")
+    
+    # Configure grid
+    root.rowconfigure(0, weight=1)
+    root.columnconfigure(0, weight=1)
+    
+    # Create a labelframe to hold the notebook (mimicking your layout)
+    main_frame = tb.Labelframe(root, text="Network Monitor", bootstyle="info")
+    main_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+    main_frame.rowconfigure(0, weight=1)
+    main_frame.columnconfigure(0, weight=1)
+    
+    # Create notebook
+    nb = tb.Notebook(main_frame, bootstyle="dark")
+    nb.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
+    
+    # Define constants (your application would provide these)
+    FONT_NETTXT = ("Courier", 11)
+    CRT_GREEN = "#00ff00"
+    
+    # Dictionary to store widget references
+    info_labels = {}
+    
+    # Integrate the network tab
+    network_controller = integrate_network_tab(root, nb, info_labels, FONT_NETTXT, CRT_GREEN)
+    
+    # Update loop
+    def update_ui():
+        network_controller.update_network_display()
+        root.after(100, update_ui)
+    
+    # Start updates
+    update_ui()
+    
+    # Handle close
+    def on_closing():
+        network_controller.shutdown()
+        root.destroy()
+    
+    root.protocol("WM_DELETE_WINDOW", on_closing)
+    
+    # Run the application
+    print("Network Monitor Demo Running...")
+    print("- Real-time network usage monitoring")
+    print("- Latency monitoring to 8.8.8.8")
+    print("- Game server ping testing")
+    print(f"- Server config: {os.path.abspath(DEFAULT_SERVERS_FILE)}")
     root.mainloop()
