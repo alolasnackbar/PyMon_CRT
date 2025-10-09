@@ -125,7 +125,7 @@ def build_metrics(root, style):
             cpu_labels["Top Processes"] = cpu_top_text
             
 
-            # --- Tab 3: Network Stats ---
+            # --- Tab 3: Network Stats --- 
             f_net = tb.Frame(nb)
             nb.add(f_net, text="Network Stats")
             f_net.columnconfigure(0, weight=1)
@@ -156,14 +156,14 @@ def build_metrics(root, style):
                 text="0.00🡫",
                 anchor="w",
                 font=FONT_NETTXT,
-                foreground=CRT_GREEN  # initial color
+                foreground=CRT_GREEN
             )
             net_out_lbl = tb.Label(
                 net_frame,
                 text="0.00🡩",
                 anchor="w",
                 font=FONT_NETTXT,
-                foreground=CRT_GREEN  # initial color
+                foreground=CRT_GREEN
             )
 
             # Pack horizontally to mimic a single-line string
@@ -172,15 +172,98 @@ def build_metrics(root, style):
             net_out_lbl.pack(side="left", padx=(2, 4))
             net_suffix_lbl.pack(side="left")
 
-            # --- Latency label ---
+            # --- Latency + Ping Button Row ---
+            latency_frame = tb.Frame(f_net)
+            latency_frame.grid(row=1, column=0, sticky="ew", padx=4, pady=1)
+            latency_frame.columnconfigure(0, weight=1)
+
             latency_lbl = tb.Label(
-                f_net,
+                latency_frame,
                 text="Latency: ... ms",
                 anchor="w",
                 font=FONT_NETTXT,
                 foreground=CRT_GREEN
             )
-            latency_lbl.grid(row=2, column=0, sticky="ew", padx=4, pady=1)
+            latency_lbl.pack(side="left")
+
+            # --- Separator ---
+            separator1 = tb.Separator(f_net, orient="horizontal")
+            separator1.grid(row=2, column=0, sticky="ew", padx=4, pady=6)
+
+            # --- Server Selection Row ---
+            server_select_frame = tb.Frame(f_net)
+            server_select_frame.grid(row=3, column=0, sticky="ew", padx=4, pady=2)
+            server_select_frame.columnconfigure(1, weight=1)
+
+            # Server dropdown
+            server_combo_label = tb.Label(
+                server_select_frame,
+                text="Server:",
+                anchor="w",
+                font=FONT_NETTXT,
+                foreground=CRT_GREEN
+            )
+            server_combo_label.grid(row=0, column=0, sticky="w", padx=(0, 4))
+
+            selected_server = tk.StringVar()
+            server_combo = tb.Combobox(
+                server_select_frame,
+                textvariable=selected_server,
+                values=[],  # Will be populated from game_servers.txt
+                state="readonly",
+                font=FONT_COFIG,
+                width=30
+            )
+            server_combo.grid(row=0, column=1, sticky="ew", padx=(0, 4))
+
+            # Config button
+            config_btn = tb.Button(
+                server_select_frame,
+                text="⚙",
+                command=None,  # Will be set in main
+                bootstyle="success-outline",
+                width=3
+            )
+            config_btn.grid(row=0, column=2, sticky="e")
+
+            # Status label for ping results
+            ping_status_lbl = tb.Label(
+                f_net,
+                text="Select server and click Ping to test",
+                anchor="w",
+                font=FONT_COFIG,
+                foreground="#888888"
+            )
+            ping_status_lbl.grid(row=4, column=0, sticky="w", padx=4, pady=2)
+
+            # Results frame with scrollable text
+            results_frame = tb.Frame(f_net)
+            results_frame.grid(row=5, column=0, sticky="nsew", padx=4, pady=2)
+            results_frame.rowconfigure(0, weight=1)
+            results_frame.columnconfigure(0, weight=1)
+
+            # Configure f_net to expand results
+            f_net.rowconfigure(5, weight=1)
+
+            # Results text widget
+            results_text = tk.Text(
+                results_frame,
+                height=10,
+                font=FONT_COFIG,
+                bg="#1a1a1a",
+                fg=CRT_GREEN,
+                insertbackground=CRT_GREEN,
+                state=tk.DISABLED,
+                wrap=tk.WORD,
+                relief="sunken",
+                borderwidth=1
+            )
+            results_text.grid(row=0, column=0, sticky="nsew")
+
+            # Scrollbar
+            results_scrollbar = tb.Scrollbar(results_frame, command=results_text.yview)
+            results_scrollbar.grid(row=0, column=1, sticky="ns")
+            results_text.config(yscrollcommand=results_scrollbar.set)
 
             # --- Store references in info_labels for easy updates ---
             info_labels["NetFrame"] = net_frame
@@ -189,6 +272,16 @@ def build_metrics(root, style):
             info_labels["Net OUT"] = net_out_lbl
             info_labels["NetSuffix"] = net_suffix_lbl
             info_labels["Latency"] = latency_lbl
+            info_labels["ServerCombo"] = server_combo
+            info_labels["SelectedServer"] = selected_server
+            #info_labels["PingButton"] = ping_btn
+            info_labels["PingStatus"] = ping_status_lbl
+            info_labels["ResultsText"] = results_text
+            #info_labels["ConfigButton"] = config_btn
+
+            # Latency display state
+            info_labels["LatencyMode"] = "normal"  # "normal" or "server"
+            info_labels["LatencyRevertTimer"] = None
             
 
             # --- Tab 4: Temperature Stats ---

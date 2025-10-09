@@ -17,6 +17,10 @@ from startup_loader import startup_loader
 import monitor_core as core
 from PIL import Image, ImageTk
 
+# ===== NETWORK TAB INTEGRATION =====
+from network_tab_module import NetworkTabController, load_game_servers
+# ===================================
+
 # --- Configuration Dictionary to hold all settings ---
 CONFIG = {}
 CONFIG_FILE = "startup_config.txt"
@@ -37,6 +41,10 @@ FOCUS_OVERRIDE_DURATION = 10000 # 10 seconds in milliseconds
 config_tab_was_manually_selected = False
 MAIN_TABS_COUNT = 4 # Only cycle through first 4 tabs (excluding config)
 current_color_scheme = {} # Will be set by load_config and update_color_scheme
+
+# ===== NETWORK TAB CONTROLLER GLOBAL =====
+network_controller = None
+# =========================================
 
 # -- relative path function for packaging
 def resource_path(rel_path):
@@ -559,6 +567,7 @@ def get_latency_color(value):
     elif value < latency_threshold: return get_color('warning')
     else: return get_color('danger')
 
+
 # ==============================================================================
 # ==== Fullscreen & Resize Management
 # ==============================================================================
@@ -716,28 +725,31 @@ def update_heavy_stats():
                 net_out = network_results['out_MB']
                 lat = network_results['latency_ms']
 
-                info_labels["NetPrefix"].config(
-                    text = f"Net Down/Upload:", 
-                    foreground=get_latency_color(lat)
-                )
-                info_labels["Net IN"].config(
-                    text=f"{net_in:.2f}🡫",
-                    foreground=get_net_color(net_in)
-                )
-                info_labels["Net OUT"].config(
-                    text=f"{net_out:.2f}🡩",
-                    foreground=get_net_color(net_out)
-                )
-                info_labels["NetSuffix"].config(
-                    text = f"MBs", 
-                    foreground=get_latency_color(lat)
-                )
+                # ===== NETWORK TAB INTEGRATION: Only update if in normal mode =====
+                if info_labels.get("LatencyMode", "normal") == "normal":
+                    info_labels["NetPrefix"].config(
+                        text = f"Net Down/Upload:", 
+                        foreground=get_latency_color(lat)
+                    )
+                    info_labels["Net IN"].config(
+                        text=f"{net_in:.2f}🡫",
+                        foreground=get_net_color(net_in)
+                    )
+                    info_labels["Net OUT"].config(
+                        text=f"{net_out:.2f}🡩",
+                        foreground=get_net_color(net_out)
+                    )
+                    info_labels["NetSuffix"].config(
+                        text = f"MBs", 
+                        foreground=get_latency_color(lat)
+                    )
 
-                lat_text = f"Latency: {lat:>5.1f} ms" if lat is not None else "Latency:     N/A"
-                info_labels["Latency"].config(
-                    text=lat_text,
-                    foreground=get_latency_color(lat)
-                )
+                    lat_text = f"Latency: {lat:>5.1f} ms" if lat is not None else "Latency:     N/A"
+                    info_labels["Latency"].config(
+                        text=lat_text,
+                        foreground=get_latency_color(lat)
+                    )
+                # ==================================================================
                                 
                 # --- Processing Stats Tab (COLORIZED VERSION) ---
                 cpu_labels = widgets["CPU Stats"]
@@ -816,9 +828,154 @@ def update_time():
     root.after(1000, update_time)
 
 # ==============================================================================
+# ==== NETWORK TAB INTEGRATION HELPER
+# ==============================================================================
+def integrate_network_tab():
+    """
+    Integrates the network tab server ping functionality into the existing GUI.
+    Should be called after widgets are built but before starting update loops.
+    """
+    global network_controller
+    
+    try:
+        # Get the Sys Info tab's info_labels dictionary
+        if "Sys Info" not in widgets:
+            print("Warning: 'Sys Info' not found in widgets. Cannot integrate network tab.")
+            return None
+        
+        info_labels = widgets["Sys Info"]
+        
+        # Find the Network Stats tab frame
+        f_net = None
+        if "NetFrame" in info_labels:
+            # Get the parent of NetFrame which should be the tab frame
+            f_net = info_labels["NetFrame"].master
+        
+        if f_net is None:
+            print("Warning: Could not find Network Stats tab frame. Cannot integrate network tab.")
+            return None
+        
+        # --- Add Server Ping UI Components ---
+        # Separator
+        separator1 = tb.Separator(f_net, orient="horizontal")
+        separator1.grid(row=2, column=0, sticky="ew", padx=4, pady=6)
+
+        # Server Selection Row
+        server_select_frame = tb.Frame(f_net)
+        server_select_frame.grid(row=3, column=0, sticky="ew", padx=4, pady=2)
+        server_select_frame.columnconfigure(1, weight=1)
+
+        # Server dropdown label
+        server_combo_label = tb.Label(
+            server_select_frame,
+            text="Server:",
+            anchor="w",
+            font=FONT_NETTXT,
+            foreground=CRT_GREEN
+        )
+        server_combo_label.grid(row=0, column=0, sticky="w", padx=(0, 4))
+
+        selected_server = tk.StringVar()
+        server_combo = tb.Combobox(
+            server_select_frame,
+            textvariable=selected_server,
+            values=[],
+            state="readonly",
+            font=("Courier", 9),
+            width=30
+        )
+        server_combo.grid(row=0, column=1, sticky="ew", padx=(0, 4))
+
+        # Ping button
+        ping_btn = tb.Button(
+            server_select_frame,
+            text="Ping",
+            bootstyle="success-outline",
+            width=8
+        )
+        ping_btn.grid(row=0, column=2, sticky="e", padx=(0, 2))
+
+        # Config button
+        config_btn = tb.Button(
+            server_select_frame,
+            text="⚙",
+            bootstyle="success-outline",
+            width=3
+        )
+        config_btn.grid(row=0, column=3, sticky="e")
+
+        # Status label
+        ping_status_lbl = tb.Label(
+            f_net,
+            text="Select server and click Ping to test",
+            anchor="w",
+            font=("Courier", 9),
+            foreground="#888888"
+        )
+        ping_status_lbl.grid(row=4, column=0, sticky="w", padx=4, pady=2)
+
+        # Results frame
+        results_frame = tb.Frame(f_net)
+        results_frame.grid(row=5, column=0, sticky="nsew", padx=4, pady=2)
+        results_frame.rowconfigure(0, weight=1)
+        results_frame.columnconfigure(0, weight=1)
+        f_net.rowconfigure(5, weight=1)
+
+        # Results text widget
+        results_text = tk.Text(
+            results_frame,
+            height=10,
+            font=("Courier", 9),
+            bg="#1a1a1a",
+            fg=CRT_GREEN,
+            insertbackground=CRT_GREEN,
+            state=tk.DISABLED,
+            wrap=tk.WORD,
+            relief="sunken",
+            borderwidth=1
+        )
+        results_text.grid(row=0, column=0, sticky="nsew")
+
+        # Scrollbar
+        results_scrollbar = tb.Scrollbar(results_frame, command=results_text.yview)
+        results_scrollbar.grid(row=0, column=1, sticky="ns")
+        results_text.config(yscrollcommand=results_scrollbar.set)
+
+        # Store references
+        info_labels["ServerCombo"] = server_combo
+        info_labels["SelectedServer"] = selected_server
+        info_labels["PingButton"] = ping_btn
+        info_labels["PingStatus"] = ping_status_lbl
+        info_labels["ResultsText"] = results_text
+        info_labels["ConfigButton"] = config_btn
+        info_labels["LatencyMode"] = "normal"
+        info_labels["LatencyRevertTimer"] = None
+        
+        # Create controller
+        controller = NetworkTabController(root, info_labels)
+        
+        # Wire up commands
+        ping_btn.config(command=controller.run_server_ping_test)
+        config_btn.config(command=controller.open_server_config)
+        
+        # Load servers
+        controller.load_servers()
+        
+        print("Network tab integration successful!")
+        return controller
+        
+    except Exception as e:
+        print(f"Warning: Could not integrate network tab: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+# ==============================================================================
 # ==== Application Start
 # ==============================================================================
 def start_app():
+    global network_controller
+    
     # Assuming REFRESH_MS is imported from constants
     data_fetcher = ThreadedDataFetcher(data_queue, interval=REFRESH_MS / 1000)
     data_fetcher.start()
@@ -830,11 +987,27 @@ def start_app():
     # Set up configuration bindings after widgets are created
     setup_config_bindings()
     
+    # ===== INTEGRATE NETWORK TAB =====
+    network_controller = integrate_network_tab()
+    # =================================
+    
     # Start auto-cycling after a short delay
     root.after(2000, auto_cycle_tabs)
     
     # Initial status
     update_status("Monitoring active")
+
+# ==============================================================================
+# ==== Application Close Handler
+# ==============================================================================
+def on_app_close():
+    """Clean shutdown of all components."""
+    global network_controller
+    
+    if network_controller:
+        network_controller.shutdown()
+    
+    root.destroy()
 
 if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -870,5 +1043,9 @@ if __name__ == "__main__":
             sys.exit(1)
 
     # This only runs if CONFIG_FILE exists (not first launch)
+    
+    # Set up close handler
+    root.protocol("WM_DELETE_WINDOW", on_app_close)
+    
     startup_loader(root, widgets, style, on_complete=start_app)
     root.mainloop()

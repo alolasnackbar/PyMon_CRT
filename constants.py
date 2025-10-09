@@ -40,6 +40,7 @@ FONT_TITLE = ("Consolas", 14, "bold")
 FONT_SYSTIME = ("Consolas", 55, "bold")
 FONT_INFOTXT = ("Consolas", 11, "bold")
 FONT_NETTXT = ("Consolas", 17, "bold")
+FONT_COFIG = ("Consolas", 9, "bold")
 
 FONT_TAB_TITLE_COLOR = "success"
 FONT_OVERLAY = ('Helvetica', 12)
