@@ -27,7 +27,7 @@ CONFIG_FILE = "startup_config.txt"
 
 # --- Globals ---
 data_queue = queue.Queue()
-network_results = {"in_MB": 0, "out_MB": 0, "latency_ms": 0}
+network_results = {"in_MB": 0, "out_MB": 0, "avg_latency_ms": 0}
 last_resize_time = 0
 RESIZE_DEBOUNCE_MS = 100 # Prevents excessive redrawing during resize
 
@@ -682,7 +682,7 @@ def update_gui():
             cpu_usage = history.get("CPU", [0])[-1]
             cpu_temp = core.get_cpu_temp()
             gpu_temp = core.get_gpu_temp()
-            latency = network_results.get('latency_ms')
+            latency = network_results.get('avg_latency_ms')
             smart_focus_check(cpu_usage, cpu_temp, gpu_temp, latency)
             
     except queue.Empty:
@@ -723,7 +723,8 @@ def update_heavy_stats():
                 # --- Network & Latency ---
                 net_in = network_results['in_MB']
                 net_out = network_results['out_MB']
-                lat = network_results['latency_ms']
+                lat = network_results['avg_latency_ms']
+                iface = network_results['interface_name']
 
                 # ===== NETWORK TAB INTEGRATION: Only update if in normal mode =====
                 if info_labels.get("LatencyMode", "normal") == "normal":
@@ -744,7 +745,7 @@ def update_heavy_stats():
                         foreground=get_latency_color(lat)
                     )
 
-                    lat_text = f"Latency: {lat:>5.1f} ms" if lat is not None else "Latency:     N/A"
+                    lat_text = f"{iface} Latency: {lat:>5.1f} ms" if lat is not None else "Latency:     N/A"
                     info_labels["Latency"].config(
                         text=lat_text,
                         foreground=get_latency_color(lat)
@@ -807,16 +808,28 @@ def update_network_stats():
     def worker():
         global network_results
         try:
-            # Assuming NETWORK_INTERFACE, PING_HOST, and PING_COUNT are imported from constants
-            net_in, net_out, avg_latency = core.net_usage_latency(
+            # net_usage_latency now returns 5 values: (net_in, net_out, latency, interface_name, connection_type)
+            net_in, net_out, avg_latency, interface_name, connection_type = core.net_usage_latency(
                 interface=NETWORK_INTERFACE,
-                ping_host_addr=PING_HOST,
+                ping_target=PING_HOST,
                 ping_count=PING_COUNT
             )
-            network_results = {"in_MB": net_in, "out_MB": net_out, "latency_ms": avg_latency}
+            network_results = {
+                "in_MB": net_in, 
+                "out_MB": net_out, 
+                "avg_latency_ms": avg_latency,
+                "interface_name": interface_name,
+                "connection_type": connection_type
+            }
         except Exception as e:
             print(f"Network stats error: {e}")
-            network_results = {"in_MB": 0.0, "out_MB": 0.0, "latency_ms": None}
+            network_results = {
+                "in_MB": 0.0, 
+                "out_MB": 0.0, 
+                "avg_latency_ms": None,
+                "interface_name": None,
+                "connection_type": None
+            }
         finally:
             root.after(REFRESH_SLOW_MS, update_network_stats)
     threading.Thread(target=worker, daemon=True).start()

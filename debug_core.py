@@ -181,11 +181,11 @@ def run_diagnostics():
     output.write("-"*60 + "\n", Colors.WHITE)
     
     try:
-        interface = monitor_core.get_primary_interface()
-        if interface:
-            output.write(f"✓ Primary Interface: {interface}\n", Colors.GREEN)
+        interface_name, connection_type = monitor_core.get_primary_interface()
+        if interface_name:
+            output.write(f"✓ Primary Interface: {interface_name} ({connection_type})\n", Colors.GREEN)
             
-            net_in, net_out, latency = monitor_core.net_usage_latency(interface=interface, ping_count=1)
+            net_in, net_out, latency, iface, conn_type = monitor_core.net_usage_latency(interface=interface_name, ping_count=1)
             output.write(f"✓ Network I/O: In:{net_in} Out:{net_out} MB/s\n", Colors.GREEN)
             
             if latency:

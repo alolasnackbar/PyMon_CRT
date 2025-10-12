@@ -1,14 +1,15 @@
 # REQUIRED DEPENDECY CHECK
 -psutils
 -ttkbootstrap
+-tkinter
 -wmi (cache)
+-screeninfo
 
-# version 0.1.2 as of last updated
+# version 0.1.3 as of last updated
 - New: stable latest --> (download link should be here lol)
-- New: process tabs include colour for high cpu usages detection
 - New: networks tabs revamp for custom server pinging
 - Bug fix: Colour Discrepancy on helper functions
-- Adjusted: read sections and debug logging for .exe double gui opens
+- Adjusted: network stats improved, live ping and interface detection
 _________________________________________________________________________
 ________  unavailable until further notice ______________________________
 - temp cpu/gpu added, cpu needs elevated privs in win
