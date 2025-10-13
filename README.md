@@ -5,11 +5,12 @@
 -wmi (cache)
 -screeninfo
 
-# version 0.1.3 as of last updated
+# version 0.1.5 as of last updated
 - New: stable latest --> (download link should be here lol)
-- New: networks tabs revamp for custom server pinging
-- Bug fix: Colour Discrepancy on helper functions
-- Adjusted: network stats improved, live ping and interface detection
+- New: scan-LINES ?? overlay click F12 WOW
+- Bug fix: fixed double window openings? config startup error
+- Adjusted: scan-like-lines overlay for style click F12 to toggle on or off
+- Adjusted: scan-like-lines overlay adjust based on window size being run
 _________________________________________________________________________
 ________  unavailable until further notice ______________________________
 - temp cpu/gpu added, cpu needs elevated privs in win

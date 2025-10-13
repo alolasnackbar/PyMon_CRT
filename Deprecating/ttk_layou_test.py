@@ -1,223 +1,248 @@
-import time
-import psutil
+# ============= CRT_overlay ========================
+import tkinter as tk
+from ttkbootstrap import Style
+from PIL import Image, ImageDraw, ImageTk, ImageFilter
+import math
 
-# Global cache variables
-_last_freq_check = 0
-_last_freq = None
-_freq_min = None
-_freq_max = None
-_freq_base = None
-
-# Try to import win32pdh, but don't fail if not available
-try:
-    import win32pdh
-    WIN32_AVAILABLE = True
-except ImportError:
-    WIN32_AVAILABLE = False
-
-
-def get_cpu_freq(rate_limit_sec: float = 1.0):
-    """
-    Returns a tuple (current_GHz, min_GHz, max_GHz).
-    - `current_GHz`: live frequency updated at most once per `rate_limit_sec`.
-    - `min_GHz`, `max_GHz`: cached once at startup.
-    Returns (None, None, None) if unavailable.
-    
-    Uses Windows Performance Counters for real-time frequency data including turbo boost.
-    Requires pywin32: pip install pywin32
-    """
-    global _last_freq_check, _last_freq, _freq_min, _freq_max, _freq_base
-    
-    try:
-        now = time.time()
+class CRTEffectOverlay:
+    def __init__(self, parent,
+                 scanline_spacing=3,
+                 scanline_alpha=90,
+                 scanline_color=(0, 255, 0),
+                 vignette_strength=180,
+                 vignette_blur=120,
+                 barrel_strength=0.15,
+                 enabled=True):
+        self.parent = parent
+        self.enabled = enabled
         
-        # Initialize min/max/base once
-        if _freq_min is None or _freq_max is None or _freq_base is None:
-            # Try psutil first
+        # Create a transparent toplevel window overlay
+        self.overlay_window = tk.Toplevel(parent)
+        self.overlay_window.withdraw()  # Hide initially
+        
+        # Make it transparent and click-through
+        self.overlay_window.attributes('-alpha', 1.0)  # Fully opaque window
+        self.overlay_window.attributes('-topmost', True)  # Always on top
+        self.overlay_window.overrideredirect(True)  # No window decorations
+        
+        # Make clicks pass through (Windows only - for Linux/Mac, canvas state='disabled' works)
+        try:
+            self.overlay_window.attributes('-transparentcolor', 'black')
+        except tk.TclError:
+            pass  # Not Windows
+        
+        # Canvas with black background (will be transparent on Windows)
+        self.canvas = tk.Canvas(
+            self.overlay_window, 
+            highlightthickness=0, 
+            bd=0,
+            bg='black'
+        )
+        self.canvas.pack(fill='both', expand=True)
+        
+        self._tk_image = None
+        self._last_size = (0, 0)
+
+        # parameters
+        self.scanline_spacing = scanline_spacing
+        self.scanline_alpha = scanline_alpha
+        self.scanline_color = scanline_color
+        self.vignette_strength = vignette_strength
+        self.vignette_blur = vignette_blur
+        self.barrel_strength = barrel_strength
+
+        # debounce resize
+        self._after_id = None
+        
+        # Bind to parent window events
+        parent.bind("<Configure>", self._on_parent_configure)
+        parent.bind("<Map>", self._on_parent_map)
+        parent.bind("<Unmap>", self._on_parent_unmap)
+        
+        # Show if enabled
+        if self.enabled:
+            self._sync_geometry()
+            self.overlay_window.deiconify()
+
+    def _on_parent_configure(self, event):
+        """Sync overlay position and size with parent window"""
+        if event.widget != self.parent:
+            return
+            
+        if self._after_id:
             try:
-                f = psutil.cpu_freq(percpu=False)
-                if f:
-                    # Note: min might be 0, so we check > 0
-                    if f.min and f.min > 0:
-                        _freq_min = round(f.min / 1000.0, 2)
-                    if f.max and f.max > 0:
-                        _freq_max = round(f.max / 1000.0, 2)
-                        _freq_base = f.max  # Keep in MHz for calculations
+                self.parent.after_cancel(self._after_id)
             except Exception:
                 pass
-            
-            # If we don't have base from psutil, get it from WMI
-            if _freq_base is None:
-                wmi_freq = _get_base_frequency_wmi()
-                if wmi_freq and wmi_freq > 0:
-                    _freq_base = wmi_freq
-                    # Also set max if we don't have it
-                    if _freq_max is None:
-                        _freq_max = round(wmi_freq / 1000.0, 2)
-            
-            # Last resort: use current frequency as base
-            if _freq_base is None:
-                try:
-                    f = psutil.cpu_freq(percpu=False)
-                    if f and f.current and f.current > 0:
-                        _freq_base = f.current
-                        if _freq_max is None:
-                            _freq_max = round(f.current / 1000.0, 2)
-                except Exception:
-                    pass
+        self._after_id = self.parent.after(50, self._sync_and_update)
+
+    def _on_parent_map(self, event):
+        """Show overlay when parent is shown"""
+        if self.enabled:
+            self.overlay_window.deiconify()
+
+    def _on_parent_unmap(self, event):
+        """Hide overlay when parent is hidden"""
+        self.overlay_window.withdraw()
+
+    def _sync_geometry(self):
+        """Synchronize overlay window geometry with parent window"""
+        self.parent.update_idletasks()
+        x = self.parent.winfo_x()
+        y = self.parent.winfo_y()
+        w = self.parent.winfo_width()
+        h = self.parent.winfo_height()
         
-        # Rate-limit the "current" lookup
-        if now - _last_freq_check >= rate_limit_sec or _last_freq is None:
-            current_freq = _get_live_cpu_freq_windows()
-            _last_freq = round(current_freq / 1000.0, 2) if current_freq else None
-            _last_freq_check = now
+        self.overlay_window.geometry(f"{w}x{h}+{x}+{y}")
+        return w, h
+
+    def _sync_and_update(self):
+        """Sync geometry and update overlay"""
+        self._after_id = None
+        w, h = self._sync_geometry()
         
-        return (_last_freq, _freq_min, _freq_max)
+        if (w, h) == self._last_size or w < 2 or h < 2:
+            return
+        self._last_size = (w, h)
+        
+        self._update_overlay()
+
+    def _update_overlay(self):
+        """Update the CRT overlay image"""
+        w, h = self._last_size
+        if w < 2 or h < 2:
+            return
+
+        img = self._create_crt_image(w, h)
+        self._tk_image = ImageTk.PhotoImage(img)
+        self.canvas.delete("all")
+        self.canvas.create_image(0, 0, anchor="nw", image=self._tk_image)
+
+    def _create_crt_image(self, w, h):
+        """Create CRT effect image with transparency"""
+        # Start with fully transparent image
+        base = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(base)
+        r, g, b = self.scanline_color
+
+        # Draw scanlines
+        for y in range(0, h, self.scanline_spacing):
+            draw.line((0, y, w, y), fill=(r, g, b, self.scanline_alpha))
+
+        # Draw subtle glow lines
+        glow_alpha = max(5, int(self.scanline_alpha * 0.1))
+        for y in range(0, h, self.scanline_spacing):
+            if y + 1 < h:
+                draw.line((0, y + 1, w, y + 1), fill=(r, g, b, glow_alpha))
+
+        # Create vignette effect
+        if self.vignette_strength > 0:
+            mask = Image.new("L", (w, h), 0)
+            mdraw = ImageDraw.Draw(mask)
+            inset_x, inset_y = int(w * 0.08), int(h * 0.08)
+            mdraw.ellipse((inset_x, inset_y, w - inset_x, h - inset_y), fill=255)
+            mask = mask.filter(ImageFilter.GaussianBlur(radius=self.vignette_blur))
+            mask_inv = Image.eval(mask, lambda px: 255 - px)
+
+            dark = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+            mask_strength = mask_inv.point(lambda px: int(px * (self.vignette_strength / 255.0)))
+            dark.paste((0, 0, 0, 255), (0, 0), mask_strength)
+            base = Image.alpha_composite(base, dark)
+
+        # Add subtle edge color fringing
+        edge = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        ed = ImageDraw.Draw(edge)
+        t = max(2, int(min(w, h) * 0.008))
+        ed.rectangle((0, 0, t, h), fill=(30, 0, 0, 14))
+        ed.rectangle((w - t, 0, w, h), fill=(0, 20, 40, 14))
+        base = Image.alpha_composite(base, edge)
+
+        # Optional barrel distortion (expensive, disabled by default)
+        if self.barrel_strength > 0:
+            base = self._apply_barrel_distortion(base)
+
+        return base
+
+    def _apply_barrel_distortion(self, img):
+        """Apply barrel distortion effect (CPU intensive)"""
+        w, h = img.size
+        k = self.barrel_strength
+
+        src = img.convert("RGBA")
+        dest = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+
+        cx, cy = w / 2, h / 2
+        for y in range(h):
+            for x in range(w):
+                nx = (x - cx) / cx
+                ny = (y - cy) / cy
+                r = math.sqrt(nx * nx + ny * ny)
+                if r == 0:
+                    scale = 1
+                else:
+                    scale = 1 / (1 + k * (r ** 2))
+                sx = int(cx + nx * cx * scale)
+                sy = int(cy + ny * cy * scale)
+                if 0 <= sx < w and 0 <= sy < h:
+                    dest.putpixel((x, y), src.getpixel((sx, sy)))
+
+        return dest
     
-    except Exception:
-        return (None, None, None)
-
-
-def _get_base_frequency_wmi():
-    """Get the base/nominal CPU frequency from WMI (one-time lookup)"""
-    try:
-        import subprocess
-        result = subprocess.run(
-            ['wmic', 'cpu', 'get', 'MaxClockSpeed'],
-            capture_output=True,
-            text=True,
-            timeout=2,
-            creationflags=subprocess.CREATE_NO_WINDOW
-        )
-        if result.returncode == 0:
-            lines = result.stdout.strip().split('\n')
-            for line in lines[1:]:
-                line = line.strip()
-                if line and line.isdigit():
-                    return float(line)  # Returns MHz
-    except Exception:
-        pass
-    return None
-
-
-def _get_live_cpu_freq_windows():
-    """
-    Get live CPU frequency on Windows using Performance Counters.
-    Returns frequency in MHz or None if unavailable.
-    """
-    if not WIN32_AVAILABLE:
-        return _get_freq_psutil()
-    
-    # Try Performance Counter method (most accurate for live data)
-    freq = _get_freq_performance_counter()
-    if freq:
-        return freq
-    
-    # Fallback to psutil
-    return _get_freq_psutil()
-
-
-def _get_freq_performance_counter():
-    """
-    Use Windows Performance Counter to get actual live CPU frequency.
-    Counter: \\Processor Information(_Total)\\% Processor Performance
-    Returns percentage of base frequency (can exceed 100% with turbo boost).
-    """
-    if not WIN32_AVAILABLE or _freq_base is None:
-        return None
-    
-    query = None
-    try:
-        # Counter path - shows CPU performance as percentage of base
-        counter_path = r'\Processor Information(_Total)\% Processor Performance'
-        
-        # Open query
-        query = win32pdh.OpenQuery(None, 0)
-        
-        # Add counter
-        counter_handle = win32pdh.AddEnglishCounter(query, counter_path, 0)
-        
-        # Collect first sample
-        win32pdh.CollectQueryData(query)
-        
-        # Wait briefly for delta calculation
-        time.sleep(0.1)
-        
-        # Collect second sample
-        win32pdh.CollectQueryData(query)
-        
-        # Get the value
-        counter_type, value = win32pdh.GetFormattedCounterValue(
-            counter_handle, 
-            win32pdh.PDH_FMT_DOUBLE
-        )
-        
-        # Close query
-        win32pdh.CloseQuery(query)
-        
-        # Calculate actual frequency
-        # value is percentage (e.g., 150 means 150% of base)
-        # _freq_base is in MHz
-        if value > 0:
-            actual_freq = _freq_base * (value / 100.0)
-            return actual_freq
-            
-    except Exception:
-        if query:
-            try:
-                win32pdh.CloseQuery(query)
-            except:
-                pass
-    
-    return None
-
-
-def _get_freq_psutil():
-    """Fallback: Use psutil (may be static on Windows)"""
-    try:
-        f = psutil.cpu_freq(percpu=False)
-        if f and f.current and f.current > 0:
-            return f.current
-    except Exception:
-        pass
-    return None
-
-
-def get_internal_state():
-    """
-    Helper function to inspect internal state for debugging.
-    Returns dict with all global cache variables.
-    """
-    return {
-        'freq_base_mhz': _freq_base,
-        'freq_min_ghz': _freq_min,
-        'freq_max_ghz': _freq_max,
-        'last_freq_ghz': _last_freq,
-        'last_check_timestamp': _last_freq_check,
-        'win32_available': WIN32_AVAILABLE
-    }
-current, min_freq, max_freq = get_cpu_freq(rate_limit_sec=0.5)
-
-
-print("Monitoring CPU frequency (Ctrl+C to stop)...")
-print("-" * 50)
-
-try:
-    while True:
-        current, min_freq, max_freq = get_cpu_freq(rate_limit_sec=0.5)
-        
-        if current and max_freq:
-            # Calculate turbo boost percentage
-            turbo_pct = ((current - max_freq) / max_freq) * 100
-            turbo_indicator = "🔥" if turbo_pct > 5 else "⚡" if turbo_pct > 0 else "💤"
-            
-            print(f"{turbo_indicator} CPU: {current:.2f} GHz | "
-                  f"Base: {max_freq} GHz | "
-                  f"Turbo: {turbo_pct:+.1f}%", end='\r')
+    def toggle_visibility(self):
+        """Toggle CRT effect on/off"""
+        if self.overlay_window.winfo_ismapped():
+            self.overlay_window.withdraw()
+            self.enabled = False
         else:
-            print("CPU frequency unavailable", end='\r')
-        
-        time.sleep(1.0)
-        
-except KeyboardInterrupt:
-    print("\nMonitoring stopped.")
+            self._sync_geometry()
+            self.overlay_window.deiconify()
+            self.enabled = True
+            self._update_overlay()
+
+    def destroy(self):
+        """Clean up the overlay"""
+        try:
+            self.overlay_window.destroy()
+        except:
+            pass
+
+
+def integrate_crt_overlay(root, config=None):
+    """
+    Integrate CRT overlay effect into the GUI.
+    Call this function after widgets are built but before starting mainloop.
+    
+    Args:
+        root: The tkinter root window
+        config: Optional dict with CRT settings. If None, uses defaults.
+                Available keys: scanline_spacing, scanline_alpha, scanline_color,
+                               vignette_strength, vignette_blur, barrel_strength, enabled
+    
+    Returns:
+        CRTEffectOverlay object for later control
+    """
+    # Default settings - subtle effect that matches your green theme
+    default_config = {
+        'scanline_spacing': 3,
+        'scanline_alpha': 40,           # Lower for more subtle effect
+        'scanline_color': (0, 255, 70),
+        'vignette_strength': 100,       # Reduced for subtlety
+        'vignette_blur': 100,
+        'barrel_strength': 0,           # Disabled by default for performance
+        'enabled': True
+    }
+    
+    # Merge user config with defaults
+    if config:
+        default_config.update(config)
+    
+    # Create CRT overlay
+    crt_overlay = CRTEffectOverlay(root, **default_config)
+    
+    # Initial update after a delay
+    root.after(300, crt_overlay._update_overlay)
+    return crt_overlay
+
+
+
+    

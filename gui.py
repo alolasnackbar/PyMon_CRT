@@ -1,4 +1,5 @@
 import tkinter as tk
+from tkinter import Toplevel
 import ttkbootstrap as tb
 from ttkbootstrap.constants import *
 import threading
@@ -9,6 +10,7 @@ import sys
 import subprocess
 import time
 import json # <-- Added
+import platform
 
 from constants import *
 from crt_graphics import CRTGrapher, ThreadedDataFetcher
@@ -21,11 +23,219 @@ from PIL import Image, ImageTk
 from network_tab_module import NetworkTabController, load_game_servers
 # ===================================
 
+# --- SCANLINE IMPLEMENTATION --- 
+# Add near the top with other imports
+from tkinter import Toplevel
+import platform
+
+# Add this class definition after your imports
+class ScanlineOverlay:
+    def __init__(self, parent_window):
+        self.parent = parent_window
+        self.overlay = None
+        self.enabled = False
+        self.update_job = None
+        self._hwnd = None  # Store Windows handle
+        
+    def create_overlay(self):
+        """Creates a transparent overlay with scanlines."""
+        if self.overlay:
+            return
+            
+        self.overlay = Toplevel(self.parent)
+        self.overlay.overrideredirect(True)  # No window decorations
+        self.overlay.attributes('-topmost', True)  # Stay on top
+        
+        # Platform-specific click-through setup
+        system = platform.system()
+        if system == 'Windows':
+            # Windows: Make window click-through
+            self.overlay.attributes('-transparentcolor', 'black')
+            self.overlay.attributes('-alpha', 0.95)  # Slight transparency
+            
+            # Wait for window to be created, then make it click-through
+            self.overlay.after(100, self._setup_click_through_windows)
+        else:
+            # Linux/Mac: Different approach
+            self.overlay.attributes('-alpha', 0.3)
+            try:
+                self.overlay.wm_attributes('-type', 'dock')  # Linux
+            except:
+                pass
+        
+        # Canvas for scanlines
+        self.canvas = tk.Canvas(
+            self.overlay, 
+            bg='black',
+            highlightthickness=0,
+            borderwidth=0
+        )
+        self.canvas.pack(fill='both', expand=True)
+        
+        # Initial setup with delay to ensure parent is ready
+        self.parent.after(50, self._initial_setup)
+        
+    def _setup_click_through_windows(self):
+        """Setup click-through for Windows using proper window handle."""
+        try:
+            import ctypes
+            from ctypes import wintypes
+            
+            # Get the actual window handle
+            self._hwnd = int(self.overlay.frame(), 16)
+            
+            # Constants
+            GWL_EXSTYLE = -20
+            WS_EX_LAYERED = 0x00080000
+            WS_EX_TRANSPARENT = 0x00000020
+            
+            # Get current extended style
+            user32 = ctypes.windll.user32
+            style = user32.GetWindowLongW(self._hwnd, GWL_EXSTYLE)
+            
+            # Add layered and transparent flags
+            new_style = style | WS_EX_LAYERED | WS_EX_TRANSPARENT
+            user32.SetWindowLongW(self._hwnd, GWL_EXSTYLE, new_style)
+            
+            # Force window to update
+            user32.SetWindowPos(
+                self._hwnd, 
+                None,
+                0, 0, 0, 0,
+                0x0001 | 0x0002 | 0x0004 | 0x0020  # SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_FRAMECHANGED
+            )
+            
+            print("Scanlines: Click-through enabled")
+        except Exception as e:
+            print(f"Could not set click-through on Windows: {e}")
+    
+    def _initial_setup(self):
+        """Initial setup after window creation."""
+        self.parent.update_idletasks()
+        self.update_position()
+        self.draw_scanlines()
+        self.track_parent_position()
+        
+    def draw_scanlines(self):
+        """Draw horizontal scanlines across entire canvas."""
+        self.canvas.delete('scanline')
+        
+        # Force canvas update to get actual dimensions
+        self.canvas.update_idletasks()
+        width = self.canvas.winfo_width()
+        height = self.canvas.winfo_height()
+        
+        # Ensure we have valid dimensions
+        if width < 10 or height < 10:
+            self.parent.after(50, self.draw_scanlines)
+            return
+        
+        # Draw scanlines every 2 pixels for CRT effect
+        for y in range(0, height, 2):
+            self.canvas.create_line(
+                0, y, width, y,
+                fill='#000000',
+                width=0.8,
+                tags='scanline'
+            )
+    
+    def update_position(self):
+        """Match overlay position and size exactly to parent window's CLIENT AREA."""
+        if not self.overlay:
+            return
+        
+        try:
+            # Force parent to update its geometry
+            self.parent.update_idletasks()
+            
+            # Get parent window's ROOT position (top-left corner)
+            root_x = self.parent.winfo_rootx()
+            root_y = self.parent.winfo_rooty()
+            
+            # Get parent's CLIENT AREA size (excludes decorations)
+            width = self.parent.winfo_width()
+            height = self.parent.winfo_height()
+            
+            # Ensure we have valid dimensions
+            if width < 10 or height < 10:
+                return
+            
+            # Set overlay to exact client area geometry
+            self.overlay.geometry(f"{width}x{height}+{root_x}+{root_y}")
+            
+            # Force canvas to fill the overlay
+            self.canvas.config(width=width, height=height)
+            
+        except tk.TclError:
+            # Window might be in transition, ignore
+            pass
+    
+    def track_parent_position(self):
+        """Continuously track parent window position and size."""
+        if not self.overlay or not self.enabled:
+            return
+        
+        try:
+            # Store previous geometry
+            if not hasattr(self, '_last_geometry'):
+                self._last_geometry = None
+            
+            # Get current CLIENT AREA geometry
+            current_geometry = (
+                self.parent.winfo_rootx(),
+                self.parent.winfo_rooty(),
+                self.parent.winfo_width(),
+                self.parent.winfo_height()
+            )
+            
+            # Update if geometry changed
+            if current_geometry != self._last_geometry:
+                self.update_position()
+                # Only redraw scanlines if size changed
+                if (self._last_geometry is None or 
+                    current_geometry[2:] != self._last_geometry[2:]):
+                    self.draw_scanlines()
+                self._last_geometry = current_geometry
+            
+            # Schedule next check (fast tracking for smooth movement)
+            self.update_job = self.parent.after(16, self.track_parent_position)  # ~60fps
+            
+        except tk.TclError:
+            # Window destroyed, stop tracking
+            pass
+    
+    def toggle(self):
+        """Toggle scanlines on/off."""
+        self.enabled = not self.enabled
+        if self.enabled:
+            if not self.overlay:
+                self.create_overlay()
+            else:
+                self.overlay.deiconify()
+                self.parent.after(50, self.update_position)  # Small delay for window show
+                self.track_parent_position()
+        else:
+            if self.overlay:
+                self.overlay.withdraw()
+                if self.update_job:
+                    self.parent.after_cancel(self.update_job)
+                    self.update_job = None
+    
+    def destroy(self):
+        """Clean up overlay."""
+        if self.update_job:
+            self.parent.after_cancel(self.update_job)
+            self.update_job = None
+        if self.overlay:
+            self.overlay.destroy()
+            self.overlay = None
+
 # --- Configuration Dictionary to hold all settings ---
 CONFIG = {}
 CONFIG_FILE = "startup_config.txt"
 
 # --- Globals ---
+scanline_overlay = None
 data_queue = queue.Queue()
 network_results = {"in_MB": 0, "out_MB": 0, "avg_latency_ms": 0}
 last_resize_time = 0
@@ -597,6 +807,7 @@ def toggle_fullscreen(event=None):
         if prev_geometry:
             root.geometry(prev_geometry)
 
+# Update handle_resize to work with scanline tracking:
 def handle_resize(event):
     """Debounces resize events and redraws graphs."""
     global last_resize_time
@@ -607,6 +818,7 @@ def handle_resize(event):
     current_time = time.time() * 1000
     if (current_time - last_resize_time) > RESIZE_DEBOUNCE_MS:
         last_resize_time = current_time
+        # Scanlines update automatically via track_parent_position()
         # Redraw graphs with the latest data if it exists
         if latest_history and hasattr(crt_grapher, 'redraw_all'):
             crt_grapher.redraw_all(latest_history)
@@ -987,9 +1199,8 @@ def integrate_network_tab():
 # ==== Application Start
 # ==============================================================================
 def start_app():
-    global network_controller
+    global network_controller, scanline_overlay
     
-    # Assuming REFRESH_MS is imported from constants
     data_fetcher = ThreadedDataFetcher(data_queue, interval=REFRESH_MS / 1000)
     data_fetcher.start()
     update_network_stats()
@@ -1004,18 +1215,28 @@ def start_app():
     network_controller = integrate_network_tab()
     # =================================
     
+    # Create scanline overlay
+    scanline_overlay = ScanlineOverlay(root)
+    # scanline_overlay.toggle()  # Uncomment to enable by default
+    
     # Start auto-cycling after a short delay
     root.after(2000, auto_cycle_tabs)
     
     # Initial status
     update_status("Monitoring active")
 
+# Bind a key to toggle scanlines
+root.bind("<F12>", lambda e: scanline_overlay.toggle() if scanline_overlay else None)
+
 # ==============================================================================
 # ==== Application Close Handler
 # ==============================================================================
 def on_app_close():
     """Clean shutdown of all components."""
-    global network_controller
+    global network_controller, scanline_overlay
+    
+    if scanline_overlay:
+        scanline_overlay.destroy()
     
     if network_controller:
         network_controller.shutdown()
@@ -1026,36 +1247,30 @@ if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
     os.chdir(script_dir)
     
-    # Check for config file and run setup if not found
+    # Check if config exists on FIRST RUN ONLY - don't auto-launch startup_set anymore
     if not os.path.exists(CONFIG_FILE):
-        print("First launch: running startup setup...")
+        print("First launch: Creating default configuration...")
+        default_config = {
+            "monitor_index": 0,
+            "process_count": 5,
+            "cycle_enabled": False,
+            "cycle_delay": 5,
+            "focus_enabled": True,
+            "cpu_threshold": 80,
+            "temp_threshold": 75,
+            "latency_threshold": 200,
+            "colorblind_mode": False
+        }
         try:
-            # Get the directory where the executable/script is located
-            if getattr(sys, 'frozen', False):
-                app_dir = os.path.dirname(sys.executable)
-            else:
-                app_dir = os.path.dirname(os.path.abspath(__file__))
-            
-            exe_path = os.path.join(app_dir, "startup_set.exe")
-            script_path = os.path.join(app_dir, "startup_set.py")
-            
-            if os.path.exists(exe_path):
-                args = [exe_path]
-            elif os.path.exists(script_path):
-                args = [sys.executable, script_path]
-            else:
-                sys.exit(f"Error: startup_set not found in {app_dir}. Exiting.")
-            
-            subprocess.run(args, check=True)
-            
-            # EXIT HERE - Don't continue running this instance
-            sys.exit(0)  # <-- ADD THIS LINE
-            
+            with open(CONFIG_FILE, "w") as f:
+                json.dump(default_config, f, indent=2)
+            print(f"Default configuration created at {CONFIG_FILE}")
+            print("You can modify settings using the Config tab or run startup_set.py")
         except Exception as e:
-            print(f"Could not run setup script: {e}")
-            sys.exit(1)
-
-    # This only runs if CONFIG_FILE exists (not first launch)
+            print(f"Warning: Could not create default config: {e}")
+    
+    # Load the config (whether it existed or was just created)
+    load_config()
     
     # Set up close handler
     root.protocol("WM_DELETE_WINDOW", on_app_close)

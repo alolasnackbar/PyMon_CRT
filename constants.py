@@ -44,7 +44,7 @@ FONT_COFIG = ("Consolas", 9, "bold")
 
 FONT_TAB_TITLE_COLOR = "success"
 FONT_OVERLAY = ('Helvetica', 12)
-FONT_INFO = ("Consolas")
+FONT_INFO = ("Consolas","bold")
 
 # --- Constants & Globals ---
 REFRESH_GUI_MS = 100
