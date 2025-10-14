@@ -5,11 +5,12 @@
 -wmi (cache)
 -screeninfo
 
-# version 0.1.5 as of last updated
+# version 0.1.6 as of last updated
+=== Controls updated ===
+<ESC> toggle out of fullscreen <F11> toggle in fullscreen <F12> toggle SCANLINE-mode
 - New: stable latest --> (download link should be here lol)
-- New: scan-LINES ?? overlay click F12 WOW
 - Bug fix: fixed double window openings? config startup error
-- Adjusted: scan-like-lines overlay for style click F12 to toggle on or off
+- Adjusted:more styling changes, notebook tabs 
 - Adjusted: scan-like-lines overlay adjust based on window size being run
 _________________________________________________________________________
 ________  unavailable until further notice ______________________________

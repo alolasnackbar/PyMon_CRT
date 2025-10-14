@@ -70,7 +70,30 @@ def build_metrics(root, style):
             f.rowconfigure(0, weight=1)
             f.columnconfigure(0, weight=1)
 
-            nb = tb.Notebook(f, bootstyle="dark")
+            style = tb.Style()
+
+            # Configure notebook tabs globally
+            style.configure(
+                'TNotebook.Tab',
+                foreground=CRT_GREEN,      # Tab text color
+                background='#1a1a1a',       # Tab background
+                font=FONT_NOTEB,          # Your font constant
+                padding=[10, 5]             # Padding for better look
+            )
+
+            # Configure selected tab appearance
+            style.map(
+                'TNotebook.Tab',
+                foreground=[
+                    ('selected', '#FFFFFF'),    # White when selected
+                    ('!selected', CRT_GREEN)    # Green when not selected
+                ],
+                background=[
+                    ('selected', '#2d2d2d'),    # Darker when selected
+                    ('!selected', '#1a1a1a')    # Normal when not selected
+                ]
+            )
+            nb = tb.Notebook(f)
             nb.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
 
             # Store notebook reference for auto-cycling

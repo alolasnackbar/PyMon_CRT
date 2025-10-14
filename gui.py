@@ -131,11 +131,11 @@ class ScanlineOverlay:
             return
         
         # Draw scanlines every 2 pixels for CRT effect
-        for y in range(0, height, 2):
+        for y in range(0, height, 2):  # ← This "2" controls spacing
             self.canvas.create_line(
                 0, y, width, y,
                 fill='#000000',
-                width=0.8,
+                width=0.9,  # ← This controls line thickness
                 tags='scanline'
             )
     
