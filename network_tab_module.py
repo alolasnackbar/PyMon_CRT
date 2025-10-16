@@ -9,6 +9,7 @@ import subprocess
 import time
 import psutil
 import tkinter as tk
+import ttkbootstrap
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from constants import *
@@ -207,7 +208,10 @@ def create_network_tab_integrated(f_net, info_labels, FONT_NETTXT, CRT_GREEN):
     """
     # Note: Row 0 and 1 already contain network stats from gui.py
     # We'll add the server ping functionality starting from row 2
-    
+    # style global from constants
+    style = tb.Style()
+    configure_app_styles(style) 
+
     # --- Separator ---
     separator1 = tk.Frame(f_net, height=2, bg="#444444")
     separator1.grid(row=2, column=0, sticky="ew", padx=4, pady=6)
@@ -223,77 +227,42 @@ def create_network_tab_integrated(f_net, info_labels, FONT_NETTXT, CRT_GREEN):
         text="Server:",
         anchor="w",
         font=FONT_NETTXT,
-        foreground=CRT_GREEN,
-        bg=server_select_frame.cget('bg')
+        foreground=CRT_GREEN
+        #bg=server_select_frame.cget('bg')
     )
     server_combo_label.grid(row=0, column=0, sticky="w", padx=(0, 4))
 
     selected_server = tk.StringVar()
     
     # Use ttk.Combobox for better styling compatibility
-    try:
-        import ttkbootstrap as tb
-        server_combo = tb.Combobox(
-            server_select_frame,
-            textvariable=selected_server,
-            values=[],
-            state="readonly",
-            font=FONT_COFIG,
-            width=30
-        )
-    except:
-        import tkinter.ttk as ttk
-        server_combo = ttk.Combobox(
-            server_select_frame,
-            textvariable=selected_server,
-            values=[],
-            state="readonly",
-            font=FONT_COFIG,
-            width=30
-        )
-    
+    server_combo = tb.Combobox(
+        server_select_frame,
+        textvariable=selected_server,
+        values=[],
+        state="readonly",
+        font=FONT_COFIG,
+        width=30
+    )
     server_combo.grid(row=0, column=1, sticky="ew", padx=(0, 4))
 
-    # Ping button - initially without command
-    try:
-        import ttkbootstrap as tb
-        ping_btn = tb.Button(
-            server_select_frame,
-            text="Ping",
-            command=None,
-            bootstyle="success-outline",
-            width=8
-        )
-    except:
-        import tkinter.ttk as ttk
-        ping_btn = ttk.Button(
-            server_select_frame,
-            text="Ping",
-            command=None,
-            width=8
-        )
-    
+    # Ping button - uses success-outline bootstyle (styled in styles.py)
+    ping_btn = tb.Button(
+        server_select_frame,
+        text="Ping",
+        command=None,  # Set later
+        bootstyle="success-outline",
+        width=8
+    )
     ping_btn.grid(row=0, column=2, sticky="e", padx=(0, 2))
 
-    # Config button
-    try:
-        import ttkbootstrap as tb
-        config_btn = tb.Button(
-            server_select_frame,
-            text="⚙",
-            command=None,
-            bootstyle="success-outline",
-            width=3
-        )
-    except:
-        import tkinter.ttk as ttk
-        config_btn = ttk.Button(
-            server_select_frame,
-            text="⚙",
-            command=None,
-            width=3
-        )
-    
+    # Config button - uses success-outline bootstyle
+    config_btn = tb.Button(
+        server_select_frame,
+        text="⚙",
+        command=None,  # Set later
+        bootstyle="success-outline",
+        width=3
+    )
     config_btn.grid(row=0, column=3, sticky="e")
 
     # Status label for ping results
@@ -301,7 +270,7 @@ def create_network_tab_integrated(f_net, info_labels, FONT_NETTXT, CRT_GREEN):
         f_net,
         text="Select server and click Ping to test",
         anchor="w",
-        font=FONT_COFIG,
+        font=FONT_NOTEB,
         foreground="#888888",
         bg=f_net.cget('bg')
     )

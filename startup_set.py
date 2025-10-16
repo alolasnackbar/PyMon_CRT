@@ -16,6 +16,7 @@ try:
 except ImportError:
     debug_core = None
 
+from ico_test_file import flash_image
 CONFIG_FILE = "startup_config.txt"
 
 # -- relative path function for packaging
@@ -198,6 +199,7 @@ def run_setup_gui():
     root.geometry(f'{window_width}x{window_height}+{position_right}+{position_top}')
     root.minsize(window_width, window_height)
 
+
     style = tb.Style()
     bg_color = style.lookup('TNotebook.Tab', 'background')
     fg_color = style.lookup('TLabel', 'foreground')
@@ -269,7 +271,10 @@ def run_setup_gui():
     console_text.tag_config("magenta", foreground="#ff00ff")
     console_text.tag_config("white", foreground="#ffffff")
 
-    # Right side: Settings and Controls
+    # Right side: Settings and Controls == globals applied via constants with (style)
+    style = tb.Style()
+    configure_app_styles(style)
+
     controls_frame = tb.LabelFrame(content_frame, text="Settings and Controls", bootstyle="success")
     controls_frame.pack(side=RIGHT, fill=BOTH, expand=True, padx=(10, 5), pady=5)
 
@@ -443,7 +448,7 @@ def run_setup_gui():
     process_frame = tk.Frame(controls_frame, bg=bg_color)
     process_frame.pack(anchor="w", padx=15, pady=2)
 
-    process_label = tb.Label(process_frame, text="Process count:", font=("TkDefaultFont", 9))
+    process_label = tb.Label(process_frame, text="Process count:")
     process_label.pack(side="left")
 
     process_spinbox = tb.Spinbox(
@@ -748,7 +753,7 @@ Comment[en_US]=Monitors system hardware usage
 
     cleanup_button = tb.Button(
         button_frame,
-        text="Clear Startup Config",
+        text="Clear Config",
         bootstyle="warning-outline",
         command=clear_startup_and_cache
     )
@@ -836,10 +841,9 @@ Comment[en_US]=Monitors system hardware usage
         command=save_and_launch
     )
     start_button.pack(side=tk.RIGHT, padx=(5, 10), fill="x", expand=True)
-
     root.mainloop()
-
 
 # ==== ENTRY POINT ====
 if __name__ == "__main__":
+    
     main()

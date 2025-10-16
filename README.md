@@ -5,13 +5,12 @@
 -wmi (cache)
 -screeninfo
 
-# version 0.1.6 as of last updated
+# version 0.1.7 as of last updated
 === Controls updated ===
-<ESC> toggle out of fullscreen <F11> toggle in fullscreen <F12> toggle SCANLINE-mode
+(ESC) toggle out of fullscreen (F11) toggle in fullscreen (F12) toggle SCANLINE-mode
 - New: stable latest --> (download link should be here lol)
-- Bug fix: fixed double window openings? config startup error
-- Adjusted:more styling changes, notebook tabs 
-- Adjusted: scan-like-lines overlay adjust based on window size being run
+- Bug: double window openings? config startup error?
+- Adjusted: more styling changes, updated
 _________________________________________________________________________
 ________  unavailable until further notice ______________________________
 - temp cpu/gpu added, cpu needs elevated privs in win

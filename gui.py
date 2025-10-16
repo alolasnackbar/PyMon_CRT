@@ -18,6 +18,7 @@ from metrics_layout import build_metrics
 from startup_loader import startup_loader
 import monitor_core as core
 from PIL import Image, ImageTk
+#from ico_test_file import flash_image
 
 # ===== NETWORK TAB INTEGRATION =====
 from network_tab_module import NetworkTabController, load_game_servers
@@ -1081,6 +1082,7 @@ def integrate_network_tab():
             return None
         
         # --- Add Server Ping UI Components ---
+
         # Separator
         separator1 = tb.Separator(f_net, orient="horizontal")
         separator1.grid(row=2, column=0, sticky="ew", padx=4, pady=6)
@@ -1134,8 +1136,7 @@ def integrate_network_tab():
             f_net,
             text="Select server and click Ping to test",
             anchor="w",
-            font=("Courier", 9),
-            foreground="#888888"
+            foreground="#888888",
         )
         ping_status_lbl.grid(row=4, column=0, sticky="w", padx=4, pady=2)
 

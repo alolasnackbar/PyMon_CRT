@@ -69,30 +69,7 @@ def build_metrics(root, style):
             f.grid(row=row, column=col, rowspan=rowspan, columnspan=colspan, sticky="nsew", padx=4, pady=4)
             f.rowconfigure(0, weight=1)
             f.columnconfigure(0, weight=1)
-
-            style = tb.Style()
-
-            # Configure notebook tabs globally
-            style.configure(
-                'TNotebook.Tab',
-                foreground=CRT_GREEN,      # Tab text color
-                background='#1a1a1a',       # Tab background
-                font=FONT_NOTEB,          # Your font constant
-                padding=[10, 5]             # Padding for better look
-            )
-
-            # Configure selected tab appearance
-            style.map(
-                'TNotebook.Tab',
-                foreground=[
-                    ('selected', '#FFFFFF'),    # White when selected
-                    ('!selected', CRT_GREEN)    # Green when not selected
-                ],
-                background=[
-                    ('selected', '#2d2d2d'),    # Darker when selected
-                    ('!selected', '#1a1a1a')    # Normal when not selected
-                ]
-            )
+            
             nb = tb.Notebook(f)
             nb.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
 
@@ -333,6 +310,9 @@ def build_metrics(root, style):
             temp_canvas.grid(row=1, column=0, sticky="nsew", padx=4, pady=4)
             temp_widgets["Canvas"] = temp_canvas
 
+            style = tb.Style()
+            configure_app_styles(style) 
+
             # --- Tab 5: Config (Original layout restored with balanced sizing) ---
             f_config = tb.Frame(nb)
             nb.add(f_config, text="Config")
@@ -374,7 +354,7 @@ def build_metrics(root, style):
             cycle_frame.columnconfigure(1, weight=1)
 
             cycle_enabled_var = tb.BooleanVar(value=False)
-            cycle_check = tb.Checkbutton(cycle_frame, text="Enable cycling (main 4 tabs only)", variable=cycle_enabled_var, bootstyle="success-round-toggle")
+            cycle_check = tb.Checkbutton(cycle_frame, text="Enable cycling", variable=cycle_enabled_var, bootstyle="success-round-toggle")
             cycle_check.grid(row=0, column=0, columnspan=3, padx=2, pady=1, sticky="w")
 
             tb.Label(cycle_frame, text="Cycle delay:", font=("Consolas", 10), foreground=CRT_GREEN).grid(row=1, column=0, padx=2, pady=1, sticky="w")
