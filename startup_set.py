@@ -17,15 +17,14 @@ from ico_test_file import flash_image
 CONFIG_FILE = "startup_config.txt"
 
 # -- relative path function for packaging
-def resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
-    try:
-        # PyInstaller creates a temp folder and stores path in _MEIPASS
-        base_path = sys._MEIPASS
-    except Exception:
-        base_path = os.path.abspath(".")
-
-    return os.path.join(base_path, relative_path)
+def resource_path(rel_path):
+    """Return path to resource (works for script and PyInstaller onedir)."""
+    if getattr(sys, "frozen", False):
+        # When bundled by PyInstaller, the exe is in the same folder we want
+        base = os.path.dirname(sys.executable)
+    else:
+        base = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, rel_path)
 
 def create_default_config():
     """Create a minimal default config file."""
