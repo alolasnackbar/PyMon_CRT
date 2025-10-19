@@ -10,7 +10,7 @@
 (ESC) toggle out of fullscreen 
 (F11) toggle in fullscreen 
 (F12) toggle SCANLINE-mode
-- New: stable latest --> (download link should be here lol)
+- New: stable latest --> ([stable build 0.1.8](https://github.com/alolasnackbar/PyMon_CRT/releases))
 - Adjusted: scan-like-lines overlay for style click F12 to toggle on or off
 - Adjusted: more styling changes, notebook tabs updated
 - Adjusted: scan-like-lines overlay adjust based on window size being run
