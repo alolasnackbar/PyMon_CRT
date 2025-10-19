@@ -4,5 +4,6 @@ __pycache__/
 __pycache__/*.pyc
 build/
 dist/
+output/
 startup_config.txt
 game_servers.txt

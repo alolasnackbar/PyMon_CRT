@@ -1,3 +1,4 @@
+import debug_core
 import ttkbootstrap as tb
 import tkinter as tk
 from tkinter import scrolledtext
@@ -11,23 +12,20 @@ import shutil
 import json
 import threading
 from datetime import datetime
-try:
-    import debug_core
-except ImportError:
-    debug_core = None
 
 from ico_test_file import flash_image
 CONFIG_FILE = "startup_config.txt"
 
 # -- relative path function for packaging
-def resource_path(rel_path):
-    """Return path to resource (works for script and PyInstaller onedir)."""
-    if getattr(sys, "frozen", False):
-        # When bundled by PyInstaller, the exe is in the same folder we want
-        base = os.path.dirname(sys.executable)
-    else:
-        base = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(base, rel_path)
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
 
 def create_default_config():
     """Create a minimal default config file."""
@@ -642,46 +640,6 @@ Comment[en_US]=Monitors system hardware usage
             except Exception as e:
                 log_console(f"Error: {e}", "error")
                 tb.dialogs.Messagebox.show_error(f"Failed to configure startup: {e}", "Error")
-                
-        elif sys.platform == 'darwin':
-            try:
-                plist_dir = os.path.join(os.path.expanduser('~'), 'Library', 'LaunchAgents')
-                if not os.path.exists(plist_dir):
-                    os.makedirs(plist_dir)
-                plist_path = os.path.join(plist_dir, "com.alohasnackbar.hwmonitor.plist")
-                
-                if is_exe:
-                    program_args = f"""    <array>
-        <string>{target_path}</string>
-    </array>"""
-                else:
-                    program_args = f"""    <array>
-        <string>{sys.executable}</string>
-        <string>{target_path}</string>
-    </array>"""
-                
-                plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.alohasnackbar.hwmonitor</string>
-    <key>ProgramArguments</key>
-{program_args}
-    <key>RunAtLoad</key>
-    <true/>
-</dict>
-</plist>
-"""
-                with open(plist_path, "w") as f:
-                    f.write(plist_content)
-                
-                file_type = ".exe" if is_exe else ".py"
-                log_console(f"Startup configured ({file_type})", "success")
-                tb.dialogs.Messagebox.show_info(f"Startup configured! The app will start on boot.\nUsing: {file_type}", "Success")
-            except Exception as e:
-                log_console(f"Error: {e}", "error")
-                tb.dialogs.Messagebox.show_error(f"Failed to configure startup: {e}", "Error")
         else:
             log_console("Unsupported OS", "warning")
             tb.dialogs.Messagebox.show_warning("Startup not configured. Unsupported OS.", "Warning")
@@ -708,17 +666,6 @@ Comment[en_US]=Monitors system hardware usage
                 desktop_file_path = os.path.join(autostart_dir, "hardware-monitor.desktop")
                 if os.path.exists(desktop_file_path):
                     os.remove(desktop_file_path)
-                    log_console("Removed startup file", "success")
-                    cleared_startup = True
-            except Exception as e:
-                log_console(f"Error: {e}", "error")
-                
-        elif sys.platform == 'darwin':
-            try:
-                plist_dir = os.path.join(os.path.expanduser('~'), 'Library', 'LaunchAgents')
-                plist_path = os.path.join(plist_dir, "com.alohasnackbar.hwmonitor.plist")
-                if os.path.exists(plist_path):
-                    os.remove(plist_path)
                     log_console("Removed startup file", "success")
                     cleared_startup = True
             except Exception as e:
