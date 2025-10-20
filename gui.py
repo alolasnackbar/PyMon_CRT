@@ -267,6 +267,17 @@ def resource_path(rel_path):
         base = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base, rel_path)
 
+# -- alternate relative path function for packaging (.ico)
+def resource_path_icon(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
+
 # --- Refactored Startup & Configuration ---
 def load_config():
     """Reads the configuration from the JSON file."""
@@ -629,14 +640,14 @@ load_config()
 root = tb.Window(themename="darkly")
 # safe icon loading:
 try:
-    icon_file = resource_path("nohead_test.ico")
+    icon_file = resource_path_icon("nohead_test.ico")
     if os.path.exists(icon_file):
         root.iconbitmap(icon_file)
     else:
         # fallback: try PNG via Pillow and iconphoto (more flexible)
         try:
             from PIL import Image, ImageTk
-            png = resource_path("nohead_test.png")
+            png = resource_path_icon("nohead_test.png")
             if os.path.exists(png):
                 root._icon_img = ImageTk.PhotoImage(Image.open(png))
                 root.iconphoto(False, root._icon_img)
@@ -648,7 +659,7 @@ except tk.TclError as e:
     print("Warning: failed to set window icon:", e)
     
 root.title("AlohaSnackBar Hardware Monitor")
-root.iconbitmap(resource_path('nohead_test.ico'))
+root.iconbitmap(resource_path_icon('nohead_test.ico'))
 root.minsize(580, 450) # Set minimum size to maintain readability
 
 # --- Initial Geometry ---

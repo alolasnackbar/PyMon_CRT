@@ -1,16 +1,17 @@
-# REQUIRED DEPENDECY CHECK
+# USED AND REQUIRED DEPENDECY CHECK
 -psutils
 -ttkbootstrap
 -tkinter
 -wmi (cache)
 -screeninfo
 
-# version 0.1.8 as of last updated
+# version 0.1.9 as of last updated
 === Basic Controls ===
 (ESC) toggle out of fullscreen 
 (F11) toggle in fullscreen 
 (F12) toggle SCANLINE-mode
-- New: stable latest --> ([stable build 0.1.8](https://github.com/alolasnackbar/PyMon_CRT/releases))
+- New: stable latest --> ([stable build 0.1.9](https://github.com/alolasnackbar/PyMon_CRT/releases))
+- Bug Fixed: Fixed random config saving to temp now runs in the latest build!
 - Adjusted: scan-like-lines overlay for style click F12 to toggle on or off
 - Adjusted: more styling changes, notebook tabs updated
 - Adjusted: scan-like-lines overlay adjust based on window size being run
