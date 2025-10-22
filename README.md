@@ -1,3 +1,16 @@
+<p align="center">
+  <img width="90%" src="/cache/gui_sample.gif">
+</p>
+
+<br>
+
+## 🖥️ Pymon CRT
+
+designed with the idea of a Task_mger_4Screenmax1ng_onMiniMonitors, Created my own task manager with python to screen max random pc stats in small screens. this was designed soley to be used alongside ([Hagibis 3.5inch IPS USB Mini Screen.](https://hagibis.com/usb-c-hub-with-second-screen-p00288p1.html)) ideally used at a max scale of 100% display settings with a max resolution of 960x600
+for proper usage and clarity.
+
+<br>
+
 # USED AND REQUIRED DEPENDECY CHECK
 -psutils
 -ttkbootstrap
